@@ -76,7 +76,10 @@ func Bootstrap(
 	cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", runtime.EngineAddressKey, serverAddr.String()))
 	// pass golang debug env to subprocess
 	for _, env := range os.Environ() {
-		if strings.HasPrefix(env, "GRPC_") || strings.HasPrefix(env, "GODEBUG") {
+		// AWS_* is forwarded so subnet VM plugins that upload to S3 (DeBank pipeline
+		// tracer) can use IRSA credentials, read from AWS_ROLE_ARN /
+		// AWS_WEB_IDENTITY_TOKEN_FILE in the environment.
+		if strings.HasPrefix(env, "GRPC_") || strings.HasPrefix(env, "GODEBUG") || strings.HasPrefix(env, "AWS_") {
 			cmd.Env = append(cmd.Env, env)
 		}
 	}
