@@ -1284,8 +1284,16 @@ func (n *Node) initMetricsAPI() error {
 
 	mux := http.NewServeMux()
 
+	// Re-expose the subnet-evm plugin's pipeline metrics under their bare names
+	// (chain_head_block / pipeline_block_num / pipeline_block_time) alongside the
+	// vm_eth_-prefixed originals, so the shared Grafana dashboard and alert rules
+	// — which query the bare names that coreth/geth-based chains expose — match
+	// this chain too. See pipelineMetricAliaser. Originals are left untouched.
+	aliasReg := prometheus.NewRegistry()
+	aliasReg.MustRegister(newPipelineMetricAliaser(n.MetricsGatherer))
+
 	promHandler := promhttp.HandlerFor(
-		n.MetricsGatherer,
+		prometheus.Gatherers{n.MetricsGatherer, aliasReg},
 		promhttp.HandlerOpts{},
 	)
 
@@ -1314,6 +1322,60 @@ func (n *Node) initMetricsAPI() error {
 		"metrics",
 		"",
 	)
+}
+
+// pipelineMetricAliaser re-emits the subnet-evm plugin's pipeline metrics —
+// which carry a vm_eth_ prefix because plugin VM metrics are aggregated through
+// rpcchainvm — under the bare names that coreth/geth-based chains expose
+// (chain_head_block, pipeline_block_num, pipeline_block_time), preserving the
+// chain label. This lets the shared monitoring dashboard and alert rules match
+// this chain without per-chain query changes. The vm_eth_-prefixed originals
+// are left in place.
+type pipelineMetricAliaser struct {
+	source prometheus.Gatherer
+}
+
+var pipelineMetricAliases = map[string]string{
+	"vm_eth_chain_head_block":    "chain_head_block",
+	"vm_eth_pipeline_block_num":  "pipeline_block_num",
+	"vm_eth_pipeline_block_time": "pipeline_block_time",
+}
+
+func newPipelineMetricAliaser(source prometheus.Gatherer) *pipelineMetricAliaser {
+	return &pipelineMetricAliaser{source: source}
+}
+
+func (*pipelineMetricAliaser) Describe(chan<- *prometheus.Desc) {}
+
+func (a *pipelineMetricAliaser) Collect(ch chan<- prometheus.Metric) {
+	mfs, err := a.source.Gather()
+	if err != nil {
+		return
+	}
+	for _, mf := range mfs {
+		bareName, ok := pipelineMetricAliases[mf.GetName()]
+		if !ok {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			gauge := m.GetGauge()
+			if gauge == nil {
+				continue
+			}
+			labelNames := make([]string, 0, len(m.GetLabel()))
+			labelValues := make([]string, 0, len(m.GetLabel()))
+			for _, lp := range m.GetLabel() {
+				labelNames = append(labelNames, lp.GetName())
+				labelValues = append(labelValues, lp.GetValue())
+			}
+			ch <- prometheus.MustNewConstMetric(
+				prometheus.NewDesc(bareName, "", labelNames, nil),
+				prometheus.GaugeValue,
+				gauge.GetValue(),
+				labelValues...,
+			)
+		}
+	}
 }
 
 // initAdminAPI initializes the Admin API service
