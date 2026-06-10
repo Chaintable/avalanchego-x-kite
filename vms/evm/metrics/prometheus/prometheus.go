@@ -120,7 +120,30 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 			}},
 		}, nil
 	case metrics.GaugeInfo:
-		return nil, fmt.Errorf("%w: %q is a %T", errMetricSkip, name, m)
+		// Info-style metric: constant value 1, the data lives in the labels
+		// (e.g. pipeline_node_info{chain_id="...", role="writer"}).
+		labels := m.Snapshot().Value()
+		labelPairs := make([]*dto.LabelPair, 0, len(labels))
+		for k, v := range labels {
+			labelPairs = append(labelPairs, &dto.LabelPair{
+				Name:  ptrTo(k),
+				Value: ptrTo(v),
+			})
+		}
+		slices.SortFunc(labelPairs, func(a, b *dto.LabelPair) int {
+			return strings.Compare(a.GetName(), b.GetName())
+		})
+		return &dto.MetricFamily{
+			Name: &name,
+			Help: &helpText,
+			Type: dto.MetricType_GAUGE.Enum(),
+			Metric: []*dto.Metric{{
+				Label: labelPairs,
+				Gauge: &dto.Gauge{
+					Value: ptrTo(1.0),
+				},
+			}},
+		}, nil
 	case metrics.Histogram:
 		snapshot := m.Snapshot()
 		thresholds := snapshot.Percentiles(quantiles)
