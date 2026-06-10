@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -1284,11 +1285,11 @@ func (n *Node) initMetricsAPI() error {
 
 	mux := http.NewServeMux()
 
-	// Re-expose the subnet-evm plugin's pipeline metrics under their bare names
-	// (chain_head_block / pipeline_block_num / pipeline_block_time) alongside the
-	// vm_eth_-prefixed originals, so the shared Grafana dashboard and alert rules
-	// — which query the bare names that coreth/geth-based chains expose — match
-	// this chain too. See pipelineMetricAliaser. Originals are left untouched.
+	// Re-expose the subnet-evm plugin's chain_* and pipeline_* metrics under
+	// their bare names alongside the vm_eth_-prefixed originals, so the shared
+	// Grafana dashboards and alert rules — which query the bare names that
+	// coreth/geth-based chains expose — match this chain too. See
+	// pipelineMetricAliaser. Originals are left untouched.
 	aliasReg := prometheus.NewRegistry()
 	aliasReg.MustRegister(newPipelineMetricAliaser(n.MetricsGatherer))
 
@@ -1324,21 +1325,28 @@ func (n *Node) initMetricsAPI() error {
 	)
 }
 
-// pipelineMetricAliaser re-emits the subnet-evm plugin's pipeline metrics —
-// which carry a vm_eth_ prefix because plugin VM metrics are aggregated through
-// rpcchainvm — under the bare names that coreth/geth-based chains expose
-// (chain_head_block, pipeline_block_num, pipeline_block_time), preserving the
-// chain label. This lets the shared monitoring dashboard and alert rules match
-// this chain without per-chain query changes. The vm_eth_-prefixed originals
-// are left in place.
+// pipelineMetricAliaser re-emits the subnet-evm plugin's chain and pipeline
+// metrics — which carry a vm_eth_ prefix because plugin VM metrics are
+// aggregated through rpcchainvm — under the bare names that coreth/geth-based
+// chains expose (chain_*, pipeline_*), preserving all labels. This lets the
+// shared monitoring dashboards and alert rules match this chain without
+// per-chain query changes. The vm_eth_-prefixed originals are left in place.
 type pipelineMetricAliaser struct {
 	source prometheus.Gatherer
 }
 
-var pipelineMetricAliases = map[string]string{
-	"vm_eth_chain_head_block":    "chain_head_block",
-	"vm_eth_pipeline_block_num":  "pipeline_block_num",
-	"vm_eth_pipeline_block_time": "pipeline_block_time",
+// bareAliasName strips the vm_eth_ prefix from chain_* and pipeline_* metric
+// names. Other families (avalanchego's own chain_cache_* are bare already,
+// vm_eth_eth_* etc. have no dashboard consumers) are not aliased.
+func bareAliasName(name string) (string, bool) {
+	bare, ok := strings.CutPrefix(name, "vm_eth_")
+	if !ok {
+		return "", false
+	}
+	if !strings.HasPrefix(bare, "chain_") && !strings.HasPrefix(bare, "pipeline_") {
+		return "", false
+	}
+	return bare, true
 }
 
 func newPipelineMetricAliaser(source prometheus.Gatherer) *pipelineMetricAliaser {
@@ -1353,27 +1361,43 @@ func (a *pipelineMetricAliaser) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 	for _, mf := range mfs {
-		bareName, ok := pipelineMetricAliases[mf.GetName()]
+		bareName, ok := bareAliasName(mf.GetName())
 		if !ok {
 			continue
 		}
 		for _, m := range mf.GetMetric() {
-			gauge := m.GetGauge()
-			if gauge == nil {
-				continue
-			}
 			labelNames := make([]string, 0, len(m.GetLabel()))
 			labelValues := make([]string, 0, len(m.GetLabel()))
 			for _, lp := range m.GetLabel() {
 				labelNames = append(labelNames, lp.GetName())
 				labelValues = append(labelValues, lp.GetValue())
 			}
-			ch <- prometheus.MustNewConstMetric(
-				prometheus.NewDesc(bareName, "", labelNames, nil),
-				prometheus.GaugeValue,
-				gauge.GetValue(),
-				labelValues...,
+			desc := prometheus.NewDesc(bareName, "", labelNames, nil)
+			var (
+				aliased prometheus.Metric
+				err     error
 			)
+			switch {
+			case m.GetGauge() != nil:
+				aliased, err = prometheus.NewConstMetric(
+					desc, prometheus.GaugeValue, m.GetGauge().GetValue(), labelValues...)
+			case m.GetCounter() != nil:
+				aliased, err = prometheus.NewConstMetric(
+					desc, prometheus.CounterValue, m.GetCounter().GetValue(), labelValues...)
+			case m.GetSummary() != nil:
+				s := m.GetSummary()
+				quantiles := make(map[float64]float64, len(s.GetQuantile()))
+				for _, q := range s.GetQuantile() {
+					quantiles[q.GetQuantile()] = q.GetValue()
+				}
+				aliased, err = prometheus.NewConstSummary(
+					desc, s.GetSampleCount(), s.GetSampleSum(), quantiles, labelValues...)
+			default:
+				continue
+			}
+			if err == nil {
+				ch <- aliased
+			}
 		}
 	}
 }
