@@ -4,6 +4,17 @@
 
 ---
 
+## Fork Notice
+
+This repository is a Chaintable fork of [ava-labs/avalanchego](https://github.com/ava-labs/avalanchego), maintained as the avalanchego build context for the **kite** subnet node in the DeBank nodex stack.
+
+- **Upstream:** https://github.com/ava-labs/avalanchego
+- **License:** BSD-3-Clause (inherited from upstream)
+- **Build branch:** `debank` — cloned at image-build time by [Chaintable/subnet-evm-kite](https://github.com/Chaintable/subnet-evm-kite)'s `Dockerfile.debank`
+- **No standalone image:** this repository is build context only; the published node image is `public.ecr.aws/b2h7a5c4/chaintable/kite-writer`
+
+---
+
 Node implementation for the [Avalanche](https://avax.network) network -
 a blockchains platform with high throughput, and blazing fast transactions.
 
