@@ -4,10 +4,10 @@
 package txdenylist_test
 
 import (
-	"github.com/ava-labs/avalanchego/graft/subnet-evm/precompile/contracts/txdenylist"
 	"testing"
 
 	"github.com/ava-labs/avalanchego/graft/subnet-evm/precompile/allowlist/allowlisttest"
+	"github.com/ava-labs/avalanchego/graft/subnet-evm/precompile/contracts/txdenylist"
 )
 
 func TestTxDenyListRun(t *testing.T) {
