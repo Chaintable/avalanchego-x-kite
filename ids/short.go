@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package ids
@@ -38,6 +38,16 @@ func ShortFromString(idStr string) (ShortID, error) {
 		return ShortID{}, err
 	}
 	return ToShortID(bytes)
+}
+
+// ShortFromStringOrPanic is the same as ShortFromString, but will panic on
+// error.
+func ShortFromStringOrPanic(idStr string) ShortID {
+	id, err := ShortFromString(idStr)
+	if err != nil {
+		panic(err)
+	}
+	return id
 }
 
 // ShortFromPrefixedString returns a ShortID assuming the cb58 format is

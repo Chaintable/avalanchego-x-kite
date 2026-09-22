@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package avm
@@ -218,13 +218,7 @@ func (c *Client) GetTxFee(ctx context.Context, options ...rpc.Option) (uint64, u
 	return uint64(res.TxFee), uint64(res.CreateAssetTxFee), err
 }
 
-func AwaitTxAccepted(
-	c *Client,
-	ctx context.Context,
-	txID ids.ID,
-	freq time.Duration,
-	options ...rpc.Option,
-) error {
+func (c *Client) AwaitTxAccepted(ctx context.Context, txID ids.ID, freq time.Duration, options ...rpc.Option) error {
 	ticker := time.NewTicker(freq)
 	defer ticker.Stop()
 

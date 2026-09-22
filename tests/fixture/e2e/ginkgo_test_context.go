@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package e2e
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
-	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/ava-labs/avalanchego/tests"
@@ -133,7 +132,7 @@ func (*GinkgoTestContext) Eventually(condition func() bool, waitFor time.Duratio
 	for !condition() {
 		select {
 		case <-ctx.Done():
-			require.Fail(ginkgo.GinkgoT(), msg)
+			ginkgo.GinkgoT().Fatal(msg)
 		case <-ticker.C:
 		}
 	}

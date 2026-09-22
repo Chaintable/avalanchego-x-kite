@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package peer
@@ -52,7 +52,7 @@ func StartTestPeer(
 	ip netip.AddrPort,
 	networkID uint32,
 	router router.InboundHandler,
-) (Peer, error) {
+) (*Peer, error) {
 	dialer := net.Dialer{}
 	conn, err := dialer.DialContext(ctx, constants.NetworkType, ip.String())
 	if err != nil {
@@ -122,7 +122,7 @@ func StartTestPeer(
 			PongTimeout:          constants.DefaultPingPongTimeout,
 			MaxClockDifference:   time.Minute,
 			ResourceTracker:      resourceTracker,
-			UptimeCalculator:     uptime.NoOpCalculator,
+			UptimeCalculator:     uptime.TestCalculator{},
 			IPSigner: NewIPSigner(
 				utils.NewAtomic(netip.AddrPortFrom(
 					netip.IPv6Loopback(),

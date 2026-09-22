@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package main
@@ -10,9 +10,9 @@ import (
 
 	"github.com/ava-labs/avalanchego/indexer"
 	"github.com/ava-labs/avalanchego/utils/constants"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
 	"github.com/ava-labs/avalanchego/wallet/subnet/primary"
 
-	platformvmblock "github.com/ava-labs/avalanchego/vms/platformvm/block"
 	proposervmblock "github.com/ava-labs/avalanchego/vms/proposervm/block"
 )
 
@@ -39,7 +39,7 @@ func main() {
 			platformvmBlockBytes = proposerVMBlock.Block()
 		}
 
-		platformvmBlock, err := platformvmblock.Parse(platformvmblock.Codec, platformvmBlockBytes)
+		platformvmBlock, err := platform.ParseBlock(platform.Codec, platformvmBlockBytes)
 		if err != nil {
 			log.Fatalf("failed to parse platformvm block: %s\n", err)
 		}

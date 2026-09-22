@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package enginetest
@@ -36,8 +36,8 @@ func (b *Bootstrapper) Clear(ctx context.Context) error {
 	if b.ClearF != nil {
 		return b.ClearF(ctx)
 	}
-	if b.CantClear && b.T != nil {
-		require.FailNow(b.T, errClear.Error())
+	if b.T != nil {
+		require.False(b.T, b.CantClear, errClear)
 	}
 	return errClear
 }

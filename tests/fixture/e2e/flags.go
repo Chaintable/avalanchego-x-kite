@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package e2e
@@ -40,7 +40,7 @@ type FlagVars struct {
 	stopNetwork    bool
 	restartNetwork bool
 
-	activateGranite bool
+	activateLatestAfter time.Duration
 }
 
 func (v *FlagVars) NetworkCmd() (NetworkCmd, error) {
@@ -120,8 +120,8 @@ func (v *FlagVars) NetworkShutdownDelay() time.Duration {
 	return 0
 }
 
-func (v *FlagVars) ActivateGranite() bool {
-	return v.activateGranite
+func (v *FlagVars) ActivateLatestAfter() time.Duration {
+	return v.activateLatestAfter
 }
 
 type DefaultOption func(*DefaultOptions)
@@ -214,11 +214,11 @@ func RegisterFlags(ops ...DefaultOption) *FlagVars {
 		"[optional] stop an existing network started with --reuse-network and exit without executing any tests.",
 	)
 
-	flag.BoolVar(
-		&vars.activateGranite,
-		"activate-granite",
-		false,
-		"[optional] activate the granite upgrade",
+	flag.DurationVar(
+		&vars.activateLatestAfter,
+		"activate-latest-after",
+		-1,
+		"[optional] controls activation of the latest upgrade: <0 leaves it unscheduled, 0 activates it from genesis, >0 schedules it that duration after network start",
 	)
 
 	return &vars

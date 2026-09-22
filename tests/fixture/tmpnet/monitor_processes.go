@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package tmpnet
@@ -24,6 +24,7 @@ import (
 	"github.com/ava-labs/avalanchego/tests/fixture/stacktrace"
 	"github.com/ava-labs/avalanchego/utils/logging"
 	"github.com/ava-labs/avalanchego/utils/perms"
+	"github.com/ava-labs/avalanchego/utils/rpc"
 )
 
 const (
@@ -162,7 +163,7 @@ func startPrometheus(ctx context.Context, log logging.Logger) error {
 	cmdName := prometheusCmd
 
 	args := fmt.Sprintf(
-		"--config.file=%s.yaml --web.listen-address=%s --agent --storage.agent.path=./data",
+		"--config.file=%s.yaml --web.listen-address=%s --agent --storage.agent.path=./data --enable-feature=native-histograms",
 		cmdName,
 		prometheusListenAddress,
 	)
@@ -198,6 +199,7 @@ remote_write:
     basic_auth:
       username: "%s"
       password: "%s"
+    send_native_histograms: true
 `, prometheusScrapeInterval, serviceDiscoveryDir, collectorConfig.url, collectorConfig.username, collectorConfig.password)
 
 	err = startCollector(ctx, log, cmdName, args, config)
@@ -587,11 +589,12 @@ func checkReadiness(ctx context.Context, url string) (bool, string, error) {
 		return false, "", stacktrace.Wrap(err)
 	}
 
+	//nolint:bodyclose // body is closed via rpc.CleanlyCloseBody
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return false, "", stacktrace.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer rpc.CleanlyCloseBody(resp.Body)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

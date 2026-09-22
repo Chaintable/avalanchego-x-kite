@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package throttling
@@ -44,7 +44,7 @@ func TestMsgBufferThrottler(t *testing.T) {
 	}()
 	select {
 	case <-done:
-		require.FailNow("should block on acquiring")
+		t.Fatal("should block on acquiring")
 	case <-time.After(50 * time.Millisecond):
 	}
 
@@ -89,7 +89,7 @@ func TestMsgBufferThrottlerContextCancelled(t *testing.T) {
 	}()
 	select {
 	case <-done:
-		require.FailNow("should block on acquiring")
+		t.Fatal("should block on acquiring")
 	case <-time.After(50 * time.Millisecond):
 	}
 
@@ -101,7 +101,7 @@ func TestMsgBufferThrottlerContextCancelled(t *testing.T) {
 	}()
 	select {
 	case <-done2:
-		require.FailNow("should block on acquiring")
+		t.Fatal("should block on acquiring")
 	case <-time.After(50 * time.Millisecond):
 	}
 
@@ -110,11 +110,11 @@ func TestMsgBufferThrottlerContextCancelled(t *testing.T) {
 	select {
 	case <-done2:
 	case <-time.After(50 * time.Millisecond):
-		require.FailNow("cancelling context should unblock Acquire")
+		t.Fatal("cancelling context should unblock Acquire")
 	}
 	select {
 	case <-done:
 	case <-time.After(50 * time.Millisecond):
-		require.FailNow("should be blocked")
+		t.Fatal("should be blocked")
 	}
 }

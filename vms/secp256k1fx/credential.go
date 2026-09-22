@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package secp256k1fx
@@ -41,4 +41,8 @@ func (cr *Credential) Verify() error {
 	}
 
 	return nil
+}
+
+func (cr *Credential) Self() *Credential {
+	return cr
 }

@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package state
@@ -142,7 +142,7 @@ func TestUniqueVertexCacheMiss(t *testing.T) {
 		if bytes.Equal(txBytes, b) {
 			return testTx, nil
 		}
-		require.FailNow("asked to parse unexpected transaction")
+		t.Fatal("asked to parse unexpected transaction")
 		return nil, nil
 	}
 

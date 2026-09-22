@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package uptime
@@ -47,6 +47,20 @@ func (c *lockedCalculator) CalculateUptime(nodeID ids.NodeID) (time.Duration, ti
 	defer c.calculatorLock.Unlock()
 
 	return c.c.CalculateUptime(nodeID)
+}
+
+func (c *lockedCalculator) GetStartTime(nodeID ids.NodeID) (time.Time, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	if c.isBootstrapped == nil || !c.isBootstrapped.Get() {
+		return time.Time{}, errStillBootstrapping
+	}
+
+	c.calculatorLock.Lock()
+	defer c.calculatorLock.Unlock()
+
+	return c.c.GetStartTime(nodeID)
 }
 
 func (c *lockedCalculator) CalculateUptimePercent(nodeID ids.NodeID) (float64, error) {

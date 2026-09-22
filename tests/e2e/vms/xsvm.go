@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package vms
@@ -54,7 +54,8 @@ func XSVMSubnetsOrPanic(nodes ...*tmpnet.Node) []*tmpnet.Subnet {
 	}
 }
 
-var _ = ginkgo.Describe("[XSVM]", ginkgo.Label("xsvm"), func() {
+// TODO(marun) Figure out why this test flakes when running in parallel
+var _ = ginkgo.Describe("[XSVM]", ginkgo.Label("xsvm"), ginkgo.Serial, func() {
 	tc := e2e.NewTestContext()
 	require := require.New(tc)
 

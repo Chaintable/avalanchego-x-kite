@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package executor
@@ -16,8 +16,8 @@ import (
 	"github.com/ava-labs/avalanchego/upgrade/upgradetest"
 	"github.com/ava-labs/avalanchego/utils/crypto/secp256k1"
 	"github.com/ava-labs/avalanchego/vms/components/avax"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
 	"github.com/ava-labs/avalanchego/vms/platformvm/state"
-	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
 	"github.com/ava-labs/avalanchego/vms/secp256k1fx"
 	"github.com/ava-labs/avalanchego/wallet/chain/p/builder"
 )
@@ -128,7 +128,7 @@ func TestNewImportTx(t *testing.T) {
 				return
 			}
 
-			unsignedTx := tx.Unsigned.(*txs.ImportTx)
+			unsignedTx := tx.Unsigned.(*platform.ImportTx)
 			require.NotEmpty(unsignedTx.ImportedInputs)
 			numInputs := len(unsignedTx.Ins) + len(unsignedTx.ImportedInputs)
 			require.Equal(len(tx.Creds), numInputs, "should have the same number of credentials as inputs")
@@ -147,7 +147,7 @@ func TestNewImportTx(t *testing.T) {
 
 			require.Equal(totalIn, totalOut)
 
-			stateDiff, err := state.NewDiff(lastAcceptedID, env)
+			stateDiff, err := state.NewDiff(lastAcceptedID, env, state.StakerAdditionAfterDeletionForbidden)
 			require.NoError(err)
 
 			stateDiff.SetTimestamp(tt.timestamp)
@@ -196,7 +196,7 @@ func fundedSharedMemory(
 				},
 			},
 		}
-		utxoBytes, err := txs.Codec.Marshal(txs.CodecVersion, utxo)
+		utxoBytes, err := platform.Codec.Marshal(platform.CodecVersion, utxo)
 		require.NoError(t, err)
 
 		inputID := utxo.InputID()

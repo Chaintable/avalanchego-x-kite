@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package prometheus
@@ -11,6 +11,8 @@ import (
 
 	"github.com/ava-labs/libevm/metrics"
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/ava-labs/avalanchego/utils"
 
 	dto "github.com/prometheus/client_model/go"
 )
@@ -82,7 +84,7 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 			Type: dto.MetricType_COUNTER.Enum(),
 			Metric: []*dto.Metric{{
 				Counter: &dto.Counter{
-					Value: ptrTo(float64(m.Snapshot().Count())),
+					Value: utils.PointerTo(float64(m.Snapshot().Count())),
 				},
 			}},
 		}, nil
@@ -93,7 +95,7 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 			Type: dto.MetricType_COUNTER.Enum(),
 			Metric: []*dto.Metric{{
 				Counter: &dto.Counter{
-					Value: ptrTo(m.Snapshot().Count()),
+					Value: utils.PointerTo(m.Snapshot().Count()),
 				},
 			}},
 		}, nil
@@ -104,7 +106,7 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 			Type: dto.MetricType_GAUGE.Enum(),
 			Metric: []*dto.Metric{{
 				Gauge: &dto.Gauge{
-					Value: ptrTo(float64(m.Snapshot().Value())),
+					Value: utils.PointerTo(float64(m.Snapshot().Value())),
 				},
 			}},
 		}, nil
@@ -115,7 +117,7 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 			Type: dto.MetricType_GAUGE.Enum(),
 			Metric: []*dto.Metric{{
 				Gauge: &dto.Gauge{
-					Value: ptrTo(m.Snapshot().Value()),
+					Value: utils.PointerTo(m.Snapshot().Value()),
 				},
 			}},
 		}, nil
@@ -126,8 +128,8 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 		labelPairs := make([]*dto.LabelPair, 0, len(labels))
 		for k, v := range labels {
 			labelPairs = append(labelPairs, &dto.LabelPair{
-				Name:  ptrTo(k),
-				Value: ptrTo(v),
+				Name:  utils.PointerTo(k),
+				Value: utils.PointerTo(v),
 			})
 		}
 		slices.SortFunc(labelPairs, func(a, b *dto.LabelPair) int {
@@ -140,7 +142,7 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 			Metric: []*dto.Metric{{
 				Label: labelPairs,
 				Gauge: &dto.Gauge{
-					Value: ptrTo(1.0),
+					Value: utils.PointerTo(1.0),
 				},
 			}},
 		}, nil
@@ -150,8 +152,8 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 		dtoQuantiles := make([]*dto.Quantile, len(quantiles))
 		for i := range thresholds {
 			dtoQuantiles[i] = &dto.Quantile{
-				Quantile: ptrTo(quantiles[i]),
-				Value:    ptrTo(thresholds[i]),
+				Quantile: utils.PointerTo(quantiles[i]),
+				Value:    utils.PointerTo(thresholds[i]),
 			}
 		}
 		return &dto.MetricFamily{
@@ -160,8 +162,8 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 			Type: dto.MetricType_SUMMARY.Enum(),
 			Metric: []*dto.Metric{{
 				Summary: &dto.Summary{
-					SampleCount: ptrTo(uint64(snapshot.Count())),
-					SampleSum:   ptrTo(float64(snapshot.Sum())),
+					SampleCount: utils.PointerTo(uint64(snapshot.Count())),
+					SampleSum:   utils.PointerTo(float64(snapshot.Sum())),
 					Quantile:    dtoQuantiles,
 				},
 			}},
@@ -173,7 +175,7 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 			Type: dto.MetricType_GAUGE.Enum(),
 			Metric: []*dto.Metric{{
 				Gauge: &dto.Gauge{
-					Value: ptrTo(float64(m.Snapshot().Count())),
+					Value: utils.PointerTo(float64(m.Snapshot().Count())),
 				},
 			}},
 		}, nil
@@ -183,8 +185,8 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 		dtoQuantiles := make([]*dto.Quantile, len(quantiles))
 		for i := range thresholds {
 			dtoQuantiles[i] = &dto.Quantile{
-				Quantile: ptrTo(quantiles[i]),
-				Value:    ptrTo(thresholds[i]),
+				Quantile: utils.PointerTo(quantiles[i]),
+				Value:    utils.PointerTo(thresholds[i]),
 			}
 		}
 		return &dto.MetricFamily{
@@ -193,8 +195,8 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 			Type: dto.MetricType_SUMMARY.Enum(),
 			Metric: []*dto.Metric{{
 				Summary: &dto.Summary{
-					SampleCount: ptrTo(uint64(snapshot.Count())),
-					SampleSum:   ptrTo(float64(snapshot.Sum())),
+					SampleCount: utils.PointerTo(uint64(snapshot.Count())),
+					SampleSum:   utils.PointerTo(float64(snapshot.Sum())),
 					Quantile:    dtoQuantiles,
 				},
 			}},
@@ -205,8 +207,8 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 		dtoQuantiles := make([]*dto.Quantile, len(pvShortPercent))
 		for i := range pvShortPercent {
 			dtoQuantiles[i] = &dto.Quantile{
-				Quantile: ptrTo(pvShortPercent[i]),
-				Value:    ptrTo(thresholds[i]),
+				Quantile: utils.PointerTo(pvShortPercent[i]),
+				Value:    utils.PointerTo(thresholds[i]),
 			}
 		}
 		count := snapshot.Count()
@@ -216,8 +218,8 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 			Type: dto.MetricType_SUMMARY.Enum(),
 			Metric: []*dto.Metric{{
 				Summary: &dto.Summary{
-					SampleCount: ptrTo(uint64(count)),
-					SampleSum:   ptrTo(float64(count) * snapshot.Mean()),
+					SampleCount: utils.PointerTo(uint64(count)),
+					SampleSum:   utils.PointerTo(float64(count) * snapshot.Mean()),
 					Quantile:    dtoQuantiles,
 				},
 			}},
@@ -226,5 +228,3 @@ func metricFamily(registry Registry, name string) (mf *dto.MetricFamily, err err
 		return nil, fmt.Errorf("%w: metric %q type %T", errMetricTypeNotSupported, name, metric)
 	}
 }
-
-func ptrTo[T any](x T) *T { return &x }

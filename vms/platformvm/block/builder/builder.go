@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package builder
@@ -20,12 +20,11 @@ import (
 	"github.com/ava-labs/avalanchego/utils/timer/mockable"
 	"github.com/ava-labs/avalanchego/utils/units"
 	"github.com/ava-labs/avalanchego/vms/components/gas"
-	"github.com/ava-labs/avalanchego/vms/platformvm/block"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
 	"github.com/ava-labs/avalanchego/vms/platformvm/state"
 	"github.com/ava-labs/avalanchego/vms/platformvm/status"
-	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
 	"github.com/ava-labs/avalanchego/vms/platformvm/txs/fee"
-	"github.com/ava-labs/avalanchego/vms/txs/mempool"
+	"github.com/ava-labs/avalanchego/vms/platformvm/txs/mempool"
 
 	smblock "github.com/ava-labs/avalanchego/snow/engine/snowman/block"
 	blockexecutor "github.com/ava-labs/avalanchego/vms/platformvm/block/executor"
@@ -49,11 +48,20 @@ var (
 	ErrNoPendingBlocks           = errors.New("no pending blocks")
 	errMissingPreferredState     = errors.New("missing preferred block state")
 	errCalculatingNextStakerTime = errors.New("failed calculating next staker time")
+	errUnexpectedStakerTxType    = errors.New("unexpected staker transaction type")
 )
 
 type Builder interface {
 	smblock.BuildBlockWithContextChainVM
-	mempool.Mempool[*txs.Tx]
+	// Add adds `tx` to the mempool and clears its dropped status.
+	Add(tx *platform.Tx) error
+	// Get returns the tx corresponding to `txID` and if it was present
+	Get(txID ids.ID) (*platform.Tx, bool)
+	// GetDropReason returns why `txID` was dropped
+	GetDropReason(txID ids.ID) error
+	// WaitForEvent blocks until the mempool has txs that are ready to build into
+	// a block.
+	WaitForEvent(ctx context.Context) (common.Message, error)
 
 	// BuildBlock can be called to attempt to create a new block
 	BuildBlock(context.Context) (snowman.Block, error)
@@ -63,19 +71,19 @@ type Builder interface {
 	// the preferred state.
 	//
 	// Note: This function does not call the consensus engine.
-	PackAllBlockTxs() ([]*txs.Tx, error)
+	PackAllBlockTxs() ([]*platform.Tx, error)
 }
 
 // builder implements a simple builder to convert txs into valid blocks
 type builder struct {
-	mempool.Mempool[*txs.Tx]
+	*mempool.Mempool
 
 	txExecutorBackend *txexecutor.Backend
 	blkManager        blockexecutor.Manager
 }
 
 func New(
-	mempool mempool.Mempool[*txs.Tx],
+	mempool *mempool.Mempool,
 	txExecutorBackend *txexecutor.Backend,
 	blkManager blockexecutor.Manager,
 ) Builder {
@@ -213,7 +221,7 @@ func (b *builder) BuildBlockWithContext(
 	return b.blkManager.NewBlock(statelessBlk), nil
 }
 
-func (b *builder) PackAllBlockTxs() ([]*txs.Tx, error) {
+func (b *builder) PackAllBlockTxs() ([]*platform.Tx, error) {
 	preferredID := b.blkManager.Preferred()
 	preferredState, ok := b.blkManager.GetState(preferredID)
 	if !ok {
@@ -270,9 +278,9 @@ func buildBlock(
 	forceAdvanceTime bool,
 	parentState state.Chain,
 	pChainHeight uint64,
-) (block.Block, error) {
+) (platform.Block, error) {
 	var (
-		blockTxs []*txs.Tx
+		blockTxs []*platform.Tx
 		err      error
 	)
 	if builder.txExecutorBackend.Config.UpgradeConfig.IsEtnaActivated(timestamp) {
@@ -315,12 +323,17 @@ func buildBlock(
 		return nil, fmt.Errorf("could not find next staker to reward: %w", err)
 	}
 	if shouldReward {
-		rewardValidatorTx, err := NewRewardValidatorTx(builder.txExecutorBackend.Ctx, stakerTxID)
+		stakerTx, _, err := parentState.GetTx(stakerTxID)
+		if err != nil {
+			return nil, fmt.Errorf("getting staker tx: %w", err)
+		}
+
+		rewardValidatorTx, err := newRewardTxForStaker(builder.txExecutorBackend.Ctx, stakerTx, timestamp)
 		if err != nil {
 			return nil, fmt.Errorf("could not build tx to reward staker: %w", err)
 		}
 
-		return block.NewBanffProposalBlock(
+		return platform.NewBanffProposalBlock(
 			timestamp,
 			parentID,
 			height,
@@ -336,7 +349,7 @@ func buildBlock(
 	}
 
 	// Issue a block with as many transactions as possible.
-	return block.NewBanffStandardBlock(
+	return platform.NewBanffStandardBlock(
 		timestamp,
 		parentID,
 		height,
@@ -348,14 +361,17 @@ func packDurangoBlockTxs(
 	ctx context.Context,
 	parentID ids.ID,
 	parentState state.Chain,
-	mempool mempool.Mempool[*txs.Tx],
+	mempool *mempool.Mempool,
 	backend *txexecutor.Backend,
 	manager blockexecutor.Manager,
 	timestamp time.Time,
 	pChainHeight uint64,
 	remainingSize int,
-) ([]*txs.Tx, error) {
-	stateDiff, err := state.NewDiffOn(parentState)
+) ([]*platform.Tx, error) {
+	isAddingStakerAfterDeletionAllowed := state.StakerAdditionAfterDeletionLegality(
+		backend.Config.UpgradeConfig.IsHeliconActivated(timestamp),
+	)
+	stateDiff, err := state.NewDiffOn(parentState, isAddingStakerAfterDeletionAllowed)
 	if err != nil {
 		return nil, err
 	}
@@ -365,7 +381,7 @@ func packDurangoBlockTxs(
 	}
 
 	var (
-		blockTxs      []*txs.Tx
+		blockTxs      []*platform.Tx
 		inputs        set.Set[ids.ID]
 		feeCalculator = state.PickFeeCalculator(backend.Config, stateDiff)
 	)
@@ -409,14 +425,17 @@ func packEtnaBlockTxs(
 	ctx context.Context,
 	parentID ids.ID,
 	parentState state.Chain,
-	mempool mempool.Mempool[*txs.Tx],
+	mempool *mempool.Mempool,
 	backend *txexecutor.Backend,
 	manager blockexecutor.Manager,
 	timestamp time.Time,
 	pChainHeight uint64,
 	minCapacity gas.Gas,
-) ([]*txs.Tx, error) {
-	stateDiff, err := state.NewDiffOn(parentState)
+) ([]*platform.Tx, error) {
+	isAddingStakerAfterDeletionAllowed := state.StakerAdditionAfterDeletionLegality(
+		backend.Config.UpgradeConfig.IsHeliconActivated(timestamp),
+	)
+	stateDiff, err := state.NewDiffOn(parentState, isAddingStakerAfterDeletionAllowed)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +448,7 @@ func packEtnaBlockTxs(
 	capacity := max(feeState.Capacity, minCapacity)
 
 	var (
-		blockTxs        []*txs.Tx
+		blockTxs        []*platform.Tx
 		inputs          set.Set[ids.ID]
 		blockComplexity gas.Dimensions
 		feeCalculator   = state.PickFeeCalculator(backend.Config, stateDiff)
@@ -508,16 +527,16 @@ func packEtnaBlockTxs(
 func executeTx(
 	ctx context.Context,
 	parentID ids.ID,
-	stateDiff state.Diff,
-	mempool mempool.Mempool[*txs.Tx],
+	stateDiff *state.Diff,
+	mempool *mempool.Mempool,
 	backend *txexecutor.Backend,
 	manager blockexecutor.Manager,
 	pChainHeight uint64,
 	inputs *set.Set[ids.ID],
 	feeCalculator fee.Calculator,
-	tx *txs.Tx,
+	tx *platform.Tx,
 ) (bool, error) {
-	mempool.Remove(tx)
+	mempool.Remove(tx.ID())
 
 	// Invariant: [tx] has already been syntactically verified.
 
@@ -539,7 +558,10 @@ func executeTx(
 		return false, nil
 	}
 
-	txDiff, err := state.NewDiffOn(stateDiff)
+	isAddingStakerAfterDeletionAllowed := state.StakerAdditionAfterDeletionLegality(
+		backend.Config.UpgradeConfig.IsHeliconActivated(stateDiff.GetTimestamp()),
+	)
+	txDiff, err := state.NewDiffOn(stateDiff, isAddingStakerAfterDeletionAllowed)
 	if err != nil {
 		return false, err
 	}
@@ -591,7 +613,7 @@ func executeTx(
 }
 
 // getNextStakerToReward returns the next staker txID to remove from the staking
-// set with a RewardValidatorTx rather than an AdvanceTimeTx. [chainTimestamp]
+// set with a [platform.RewardValidatorTx]/[platform.RewardAutoRenewedValidatorTx] rather than an [platform.AdvanceTimeTx]. [chainTimestamp]
 // is the timestamp of the chain at the time this validator would be getting
 // removed and is used to calculate [shouldReward].
 // Returns:
@@ -618,16 +640,47 @@ func getNextStakerToReward(
 		// If the staker is a permissionless staker (not a permissioned subnet
 		// validator), it's the next staker we will want to remove with a
 		// RewardValidatorTx rather than an AdvanceTimeTx.
-		if priority != txs.SubnetPermissionedValidatorCurrentPriority {
+		if priority != platform.SubnetPermissionedValidatorCurrentPriority {
 			return currentStaker.TxID, chainTimestamp.Equal(currentStaker.EndTime), nil
 		}
 	}
 	return ids.Empty, false, nil
 }
 
-func NewRewardValidatorTx(ctx *snow.Context, txID ids.ID) (*txs.Tx, error) {
-	utx := &txs.RewardValidatorTx{TxID: txID}
-	tx, err := txs.NewSigned(utx, txs.Codec, nil)
+func NewRewardValidatorTx(ctx *snow.Context, txID ids.ID) (*platform.Tx, error) {
+	utx := &platform.RewardValidatorTx{TxID: txID}
+	tx, err := platform.NewSignedTx(utx, platform.Codec, nil)
+	if err != nil {
+		return nil, err
+	}
+	return tx, tx.SyntacticVerify(ctx)
+}
+
+// newRewardTxForStaker returns the reward tx appropriate for the given staker.
+// Only validators added with an [platform.AddAutoRenewedValidatorTx] can be
+// auto-renewed, and thus are rewarded with a [platform.RewardAutoRenewedValidatorTx];
+// all other stakers are rewarded with a [platform.RewardValidatorTx].
+func newRewardTxForStaker(ctx *snow.Context, stakerTx *platform.Tx, timestamp time.Time) (*platform.Tx, error) {
+	switch utx := stakerTx.Unsigned.(type) {
+	case *platform.AddAutoRenewedValidatorTx:
+		return newRewardAutoRenewedValidatorTx(ctx, stakerTx.ID(), uint64(timestamp.Unix()))
+	case *platform.AddValidatorTx,
+		*platform.AddDelegatorTx,
+		*platform.AddPermissionlessValidatorTx,
+		*platform.AddPermissionlessDelegatorTx:
+		return NewRewardValidatorTx(ctx, stakerTx.ID())
+	default:
+		return nil, fmt.Errorf("%w: %T", errUnexpectedStakerTxType, utx)
+	}
+}
+
+// newRewardAutoRenewedValidatorTx returns a signed
+// [platform.RewardAutoRenewedValidatorTx] for the staker with the given txID. The
+// timestamp disambiguates reward txs across cycles, since an auto-renewed
+// validator keeps the same txID.
+func newRewardAutoRenewedValidatorTx(ctx *snow.Context, txID ids.ID, timestamp uint64) (*platform.Tx, error) {
+	utx := &platform.RewardAutoRenewedValidatorTx{TxID: txID, Timestamp: timestamp}
+	tx, err := platform.NewSignedTx(utx, platform.Codec, nil)
 	if err != nil {
 		return nil, err
 	}

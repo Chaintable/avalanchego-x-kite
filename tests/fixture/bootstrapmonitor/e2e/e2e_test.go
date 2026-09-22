@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package e2e
@@ -26,6 +26,7 @@ import (
 	"github.com/ava-labs/avalanchego/tests/fixture/tmpnet"
 	"github.com/ava-labs/avalanchego/tests/fixture/tmpnet/flags"
 	"github.com/ava-labs/avalanchego/utils/constants"
+	"github.com/ava-labs/avalanchego/utils/logging"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -46,9 +47,9 @@ const (
 	repoRelativePath = "tests/fixture/bootstrapmonitor/e2e"
 
 	avalanchegoImage       = "localhost:5001/avalanchego"
-	latestAvalanchegoImage = avalanchegoImage + ":latest"
+	masterAvalanchegoImage = avalanchegoImage + ":master"
 	monitorImage           = "localhost:5001/bootstrap-monitor"
-	latestMonitorImage     = monitorImage + ":latest"
+	masterMonitorImage     = monitorImage + ":master"
 
 	initContainerName    = "init"
 	monitorContainerName = "monitor"
@@ -138,6 +139,9 @@ var _ = ginkgo.Describe("[Bootstrap Tester]", func() {
 		bootstrapPodName := bootstrapStatefulSet.Name + "-0"
 		waitForPodCondition(tc, clientset, namespace, bootstrapPodName, corev1.PodReadyToStartContainers)
 		ginkgo.By(fmt.Sprintf("Created pod %s.%s", namespace, bootstrapPodName))
+
+		ginkgo.By(fmt.Sprintf("Waiting for the %q container to report deletion of its pod to prompt recreation with a digest-pinned image", initContainerName))
+		waitForLogOutput(tc, clientset, namespace, bootstrapPodName, initContainerName, bootstrapmonitor.PodDeletingMessage)
 
 		ginkgo.By("Waiting for the pod image to be updated to include an image digest")
 		var containerImage string
@@ -256,7 +260,7 @@ func buildImage(tc tests.TestContext, imageName string, forceNewHash bool, scrip
 	) // #nosec G204
 	cmd.Env = append(os.Environ(),
 		"DOCKER_IMAGE="+imageName,
-		"FORCE_TAG_LATEST=1",
+		"FORCE_TAG_MASTER=1",
 		"SKIP_BUILD_RACE=1",
 	)
 	output, err := cmd.CombinedOutput()
@@ -267,7 +271,8 @@ func newNodeStatefulSet(name string, flags tmpnet.FlagsMap) *appsv1.StatefulSet 
 	statefulSet := tmpnet.NewNodeStatefulSet(
 		name,
 		true, // generateName
-		latestAvalanchegoImage,
+		masterAvalanchegoImage,
+		corev1.PullAlways, // Ensure the :master image is always pulled
 		nodeContainerName,
 		volumeName,
 		volumeSize,
@@ -286,7 +291,17 @@ func newNodeStatefulSet(name string, flags tmpnet.FlagsMap) *appsv1.StatefulSet 
 }
 
 func defaultPodFlags() map[string]string {
-	return tmpnet.DefaultPodFlags(constants.LocalName, nodeDataDir)
+	flags := tmpnet.FlagsMap{
+		config.DataDirKey:                nodeDataDir,
+		config.NetworkNameKey:            constants.LocalName,
+		config.SybilProtectionEnabledKey: "false",
+		config.HealthCheckFreqKey:        "500ms", // Ensure rapid detection of a healthy state
+		config.LogDisplayLevelKey:        logging.Debug.String(),
+		config.LogLevelKey:               logging.Debug.String(),
+		config.HTTPHostKey:               "0.0.0.0", // Need to bind to pod IP to ensure kubelet can access the http port for the readiness
+	}
+	flags.SetDefaults(tmpnet.DefaultTmpnetFlags())
+	return flags
 }
 
 // waitForPodCondition waits until the specified pod reports the specified condition
@@ -360,10 +375,11 @@ func createBootstrapTester(tc tests.TestContext, clientset *kubernetes.Clientset
 // getMonitorContainer retrieves the common container definition for bootstrap-monitor containers.
 func getMonitorContainer(name string, args []string) corev1.Container {
 	return corev1.Container{
-		Name:    name,
-		Image:   latestMonitorImage,
-		Command: []string{"./bootstrap-monitor"},
-		Args:    args,
+		Name:            name,
+		Image:           masterMonitorImage,
+		ImagePullPolicy: corev1.PullAlways, // Ensure the :master image is always pulled
+		Command:         []string{"./bootstrap-monitor"},
+		Args:            args,
 		Env: []corev1.EnvVar{
 			{
 				Name: "POD_NAME",

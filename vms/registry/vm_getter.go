@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package registry
@@ -37,7 +37,7 @@ type VMGetter interface {
 // VMGetterConfig defines settings for VMGetter
 type VMGetterConfig struct {
 	FileReader      filesystem.Reader
-	Manager         vms.Manager
+	Manager         *vms.Manager
 	PluginDirectory string
 	CPUTracker      resource.ProcessTracker
 	RuntimeTracker  runtime.Tracker

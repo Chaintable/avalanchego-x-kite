@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package executor
@@ -12,12 +12,11 @@ import (
 	"github.com/ava-labs/avalanchego/utils/math"
 	"github.com/ava-labs/avalanchego/utils/set"
 	"github.com/ava-labs/avalanchego/vms/components/gas"
-	"github.com/ava-labs/avalanchego/vms/platformvm/block"
 	"github.com/ava-labs/avalanchego/vms/platformvm/config"
 	"github.com/ava-labs/avalanchego/vms/platformvm/metrics"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
 	"github.com/ava-labs/avalanchego/vms/platformvm/state"
 	"github.com/ava-labs/avalanchego/vms/platformvm/status"
-	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
 	"github.com/ava-labs/avalanchego/vms/platformvm/txs/executor"
 
 	txfee "github.com/ava-labs/avalanchego/vms/platformvm/txs/fee"
@@ -25,7 +24,7 @@ import (
 )
 
 var (
-	_ block.Visitor = (*verifier)(nil)
+	_ platform.BlockVisitor = (*verifier)(nil)
 
 	ErrConflictingBlockTxs         = errors.New("block contains conflicting transactions")
 	ErrStandardBlockWithoutChanges = errors.New("BanffStandardBlock performs no state changes")
@@ -33,6 +32,8 @@ var (
 	errApricotBlockIssuedAfterFork           = errors.New("apricot block issued after fork")
 	errIncorrectBlockHeight                  = errors.New("incorrect block height")
 	errOptionBlockTimestampNotMatchingParent = errors.New("option block proposed timestamp not matching parent block one")
+	ErrBlockTooBigPreHelicon                 = errors.New("block size exceeds max block size pre-Helicon")
+	ErrTxTooBigPreHelicon                    = errors.New("transaction size exceeds max transaction size pre-Helicon")
 )
 
 // verifier handles the logic for verifying a block.
@@ -42,27 +43,30 @@ type verifier struct {
 	pChainHeight      uint64
 }
 
-func (v *verifier) BanffAbortBlock(b *block.BanffAbortBlock) error {
+func (v *verifier) BanffAbortBlock(b *platform.BanffAbortBlock) error {
 	if err := v.banffOptionBlock(b); err != nil {
 		return err
 	}
 	return v.abortBlock(b) // Must be the last validity check on the block
 }
 
-func (v *verifier) BanffCommitBlock(b *block.BanffCommitBlock) error {
+func (v *verifier) BanffCommitBlock(b *platform.BanffCommitBlock) error {
 	if err := v.banffOptionBlock(b); err != nil {
 		return err
 	}
 	return v.commitBlock(b) // Must be the last validity check on the block
 }
 
-func (v *verifier) BanffProposalBlock(b *block.BanffProposalBlock) error {
+func (v *verifier) BanffProposalBlock(b *platform.BanffProposalBlock) error {
 	if err := v.banffNonOptionBlock(b); err != nil {
 		return err
 	}
 
 	parentID := b.Parent()
-	onDecisionState, err := state.NewDiff(parentID, v.backend)
+	isAddingStakerAfterDeletionAllowed := state.StakerAdditionAfterDeletionLegality(
+		v.txExecutorBackend.Config.UpgradeConfig.IsHeliconActivated(b.Timestamp()),
+	)
+	onDecisionState, err := state.NewDiff(parentID, v.backend, isAddingStakerAfterDeletionAllowed)
 	if err != nil {
 		return err
 	}
@@ -84,12 +88,12 @@ func (v *verifier) BanffProposalBlock(b *block.BanffProposalBlock) error {
 		return err
 	}
 
-	onCommitState, err := state.NewDiffOn(onDecisionState)
+	onCommitState, err := state.NewDiffOn(onDecisionState, isAddingStakerAfterDeletionAllowed)
 	if err != nil {
 		return err
 	}
 
-	onAbortState, err := state.NewDiffOn(onDecisionState)
+	onAbortState, err := state.NewDiffOn(onDecisionState, isAddingStakerAfterDeletionAllowed)
 	if err != nil {
 		return err
 	}
@@ -108,13 +112,16 @@ func (v *verifier) BanffProposalBlock(b *block.BanffProposalBlock) error {
 	)
 }
 
-func (v *verifier) BanffStandardBlock(b *block.BanffStandardBlock) error {
+func (v *verifier) BanffStandardBlock(b *platform.BanffStandardBlock) error {
 	if err := v.banffNonOptionBlock(b); err != nil {
 		return err
 	}
 
 	parentID := b.Parent()
-	onAcceptState, err := state.NewDiff(parentID, v.backend)
+	isAddingStakerAfterDeletionAllowed := state.StakerAdditionAfterDeletionLegality(
+		v.txExecutorBackend.Config.UpgradeConfig.IsHeliconActivated(b.Timestamp()),
+	)
+	onAcceptState, err := state.NewDiff(parentID, v.backend, isAddingStakerAfterDeletionAllowed)
 	if err != nil {
 		return err
 	}
@@ -139,31 +146,31 @@ func (v *verifier) BanffStandardBlock(b *block.BanffStandardBlock) error {
 	)
 }
 
-func (v *verifier) ApricotAbortBlock(b *block.ApricotAbortBlock) error {
+func (v *verifier) ApricotAbortBlock(b *platform.ApricotAbortBlock) error {
 	if err := v.apricotCommonBlock(b); err != nil {
 		return err
 	}
 	return v.abortBlock(b) // Must be the last validity check on the block
 }
 
-func (v *verifier) ApricotCommitBlock(b *block.ApricotCommitBlock) error {
+func (v *verifier) ApricotCommitBlock(b *platform.ApricotCommitBlock) error {
 	if err := v.apricotCommonBlock(b); err != nil {
 		return err
 	}
 	return v.commitBlock(b) // Must be the last validity check on the block
 }
 
-func (v *verifier) ApricotProposalBlock(b *block.ApricotProposalBlock) error {
+func (v *verifier) ApricotProposalBlock(b *platform.ApricotProposalBlock) error {
 	if err := v.apricotCommonBlock(b); err != nil {
 		return err
 	}
 
 	parentID := b.Parent()
-	onCommitState, err := state.NewDiff(parentID, v.backend)
+	onCommitState, err := state.NewDiff(parentID, v.backend, state.StakerAdditionAfterDeletionForbidden)
 	if err != nil {
 		return err
 	}
-	onAbortState, err := state.NewDiff(parentID, v.backend)
+	onAbortState, err := state.NewDiff(parentID, v.backend, state.StakerAdditionAfterDeletionForbidden)
 	if err != nil {
 		return err
 	}
@@ -183,13 +190,13 @@ func (v *verifier) ApricotProposalBlock(b *block.ApricotProposalBlock) error {
 	)
 }
 
-func (v *verifier) ApricotStandardBlock(b *block.ApricotStandardBlock) error {
+func (v *verifier) ApricotStandardBlock(b *platform.ApricotStandardBlock) error {
 	if err := v.apricotCommonBlock(b); err != nil {
 		return err
 	}
 
 	parentID := b.Parent()
-	onAcceptState, err := state.NewDiff(parentID, v)
+	onAcceptState, err := state.NewDiff(parentID, v, state.StakerAdditionAfterDeletionForbidden)
 	if err != nil {
 		return err
 	}
@@ -204,7 +211,7 @@ func (v *verifier) ApricotStandardBlock(b *block.ApricotStandardBlock) error {
 	)
 }
 
-func (v *verifier) ApricotAtomicBlock(b *block.ApricotAtomicBlock) error {
+func (v *verifier) ApricotAtomicBlock(b *platform.ApricotAtomicBlock) error {
 	// We call [commonBlock] here rather than [apricotCommonBlock] because below
 	// this check we perform the more strict check that ApricotPhase5 isn't
 	// activated.
@@ -243,7 +250,7 @@ func (v *verifier) ApricotAtomicBlock(b *block.ApricotAtomicBlock) error {
 		return err
 	}
 
-	v.Mempool.Remove(b.Tx)
+	v.Mempool.RemoveConflicts(b.Tx.InputIDs())
 
 	blkID := b.ID()
 	v.blkIDToState[blkID] = &blockState{
@@ -265,7 +272,7 @@ func (v *verifier) ApricotAtomicBlock(b *block.ApricotAtomicBlock) error {
 	return nil
 }
 
-func (v *verifier) banffOptionBlock(b block.BanffBlock) error {
+func (v *verifier) banffOptionBlock(b platform.BanffBlock) error {
 	if err := v.commonBlock(b); err != nil {
 		return err
 	}
@@ -288,7 +295,7 @@ func (v *verifier) banffOptionBlock(b block.BanffBlock) error {
 	return nil
 }
 
-func (v *verifier) banffNonOptionBlock(b block.BanffBlock) error {
+func (v *verifier) banffNonOptionBlock(b platform.BanffBlock) error {
 	if err := v.commonBlock(b); err != nil {
 		return err
 	}
@@ -309,7 +316,7 @@ func (v *verifier) banffNonOptionBlock(b block.BanffBlock) error {
 	)
 }
 
-func (v *verifier) apricotCommonBlock(b block.Block) error {
+func (v *verifier) apricotCommonBlock(b platform.Block) error {
 	// We can use the parent timestamp here, because we are guaranteed that the
 	// parent was verified. Apricot blocks only update the timestamp with
 	// AdvanceTimeTxs. This means that this block's timestamp will be equal to
@@ -326,7 +333,7 @@ func (v *verifier) apricotCommonBlock(b block.Block) error {
 	return v.commonBlock(b)
 }
 
-func (v *verifier) commonBlock(b block.Block) error {
+func (v *verifier) commonBlock(b platform.Block) error {
 	parentID := b.Parent()
 	parent, err := v.GetBlock(parentID)
 	if err != nil {
@@ -350,7 +357,7 @@ func (v *verifier) commonBlock(b block.Block) error {
 //
 // Invariant: The call to abortBlock must be the last validity check on the
 // block. If this function returns [nil], the block is cached as valid.
-func (v *verifier) abortBlock(b block.Block) error {
+func (v *verifier) abortBlock(b platform.Block) error {
 	parentID := b.Parent()
 	onAbortState, ok := v.getOnAbortState(parentID)
 	if !ok {
@@ -377,7 +384,7 @@ func (v *verifier) abortBlock(b block.Block) error {
 //
 // Invariant: The call to commitBlock must be the last validity check on the
 // block. If this function returns [nil], the block is cached as valid.
-func (v *verifier) commitBlock(b block.Block) error {
+func (v *verifier) commitBlock(b platform.Block) error {
 	parentID := b.Parent()
 	onCommitState, ok := v.getOnCommitState(parentID)
 	if !ok {
@@ -405,12 +412,12 @@ func (v *verifier) commitBlock(b block.Block) error {
 // Invariant: The call to proposalBlock must be the last validity check on the
 // block. If this function returns [nil], the block is cached as valid.
 func (v *verifier) proposalBlock(
-	b block.Block,
-	tx *txs.Tx,
-	onDecisionState state.Diff,
+	b platform.Block,
+	tx *platform.Tx,
+	onDecisionState *state.Diff,
 	gasConsumed gas.Gas,
-	onCommitState state.Diff,
-	onAbortState state.Diff,
+	onCommitState *state.Diff,
+	onAbortState *state.Diff,
 	feeCalculator txfee.Calculator,
 	inputs set.Set[ids.ID],
 	atomicRequests map[ids.ID]*atomic.Requests,
@@ -432,7 +439,7 @@ func (v *verifier) proposalBlock(
 	onCommitState.AddTx(tx, status.Committed)
 	onAbortState.AddTx(tx, status.Aborted)
 
-	v.Mempool.Remove(tx)
+	v.Mempool.RemoveConflicts(tx.InputIDs())
 
 	blkID := b.ID()
 	v.blkIDToState[blkID] = &blockState{
@@ -468,10 +475,10 @@ func (v *verifier) proposalBlock(
 // Invariant: The call to standardBlock must be the last validity check on the
 // block. If this function returns [nil], the block is cached as valid.
 func (v *verifier) standardBlock(
-	b block.Block,
-	txs []*txs.Tx,
+	b platform.Block,
+	txs []*platform.Tx,
 	feeCalculator txfee.Calculator,
-	onAcceptState state.Diff,
+	onAcceptState *state.Diff,
 	changedDuringAdvanceTime bool,
 ) error {
 	inputs, atomicRequests, onAcceptFunc, gasConsumed, lowBalanceL1ValidatorsEvicted, err := v.processStandardTxs(
@@ -490,7 +497,9 @@ func (v *verifier) standardBlock(
 		return ErrStandardBlockWithoutChanges
 	}
 
-	v.Mempool.Remove(txs...)
+	for _, tx := range txs {
+		v.Mempool.RemoveConflicts(tx.InputIDs())
+	}
 
 	blkID := b.ID()
 	v.blkIDToState[blkID] = &blockState{
@@ -513,7 +522,7 @@ func (v *verifier) standardBlock(
 	return nil
 }
 
-func (v *verifier) processStandardTxs(txs []*txs.Tx, feeCalculator txfee.Calculator, diff state.Diff, parentID ids.ID) (
+func (v *verifier) processStandardTxs(txs []*platform.Tx, feeCalculator txfee.Calculator, diff *state.Diff, parentID ids.ID) (
 	set.Set[ids.ID],
 	map[ids.ID]*atomic.Requests,
 	func(),
@@ -632,7 +641,7 @@ func (v *verifier) processStandardTxs(txs []*txs.Tx, feeCalculator txfee.Calcula
 
 func calculateBlockMetrics(
 	config *config.Internal,
-	blk block.Block,
+	blk platform.Block,
 	s state.Chain,
 	gasConsumed gas.Gas,
 ) metrics.Block {
@@ -667,7 +676,7 @@ func calculateBlockMetrics(
 // true if at least one L1 validator was deactivated.
 func deactivateLowBalanceL1Validators(
 	config validatorfee.Config,
-	diff state.Diff,
+	diff *state.Diff,
 ) (bool, error) {
 	var (
 		accruedFees       = diff.GetAccruedFees()

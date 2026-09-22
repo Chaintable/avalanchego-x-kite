@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package executor
@@ -65,7 +65,7 @@ func (v *SemanticVerifier) OperationTx(tx *txs.OperationTx) error {
 		return err
 	}
 
-	if !v.Bootstrapped || v.Tx.ID().String() == "MkvpJS13eCnEYeYi9B5zuWrU9goG9RBj7nr83U7BjrFV22a12" {
+	if !v.Bootstrapped {
 		return nil
 	}
 

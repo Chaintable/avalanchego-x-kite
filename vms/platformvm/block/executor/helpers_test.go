@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package executor
@@ -10,7 +10,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 
 	"github.com/ava-labs/avalanchego/chains"
 	"github.com/ava-labs/avalanchego/chains/atomic"
@@ -35,20 +34,19 @@ import (
 	"github.com/ava-labs/avalanchego/vms/platformvm/fx"
 	"github.com/ava-labs/avalanchego/vms/platformvm/genesis/genesistest"
 	"github.com/ava-labs/avalanchego/vms/platformvm/metrics"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
 	"github.com/ava-labs/avalanchego/vms/platformvm/reward"
 	"github.com/ava-labs/avalanchego/vms/platformvm/state"
 	"github.com/ava-labs/avalanchego/vms/platformvm/state/statetest"
 	"github.com/ava-labs/avalanchego/vms/platformvm/status"
-	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
 	"github.com/ava-labs/avalanchego/vms/platformvm/txs/executor"
 	"github.com/ava-labs/avalanchego/vms/platformvm/txs/mempool"
 	"github.com/ava-labs/avalanchego/vms/platformvm/txs/txstest"
 	"github.com/ava-labs/avalanchego/vms/platformvm/utxo"
-	"github.com/ava-labs/avalanchego/vms/platformvm/validators/validatorstest"
 	"github.com/ava-labs/avalanchego/vms/secp256k1fx"
 	"github.com/ava-labs/avalanchego/wallet/chain/p/wallet"
 
-	txmempool "github.com/ava-labs/avalanchego/vms/txs/mempool"
+	platformvalidators "github.com/ava-labs/avalanchego/vms/platformvm/validators"
 )
 
 const (
@@ -61,7 +59,7 @@ const (
 	defaultTxFee = 100 * units.NanoAvax
 )
 
-var testSubnet1 *txs.Tx
+var testSubnet1 *platform.Tx
 
 type stakerStatus uint
 
@@ -82,7 +80,7 @@ type test struct {
 
 type environment struct {
 	blkManager Manager
-	mempool    txmempool.Mempool[*txs.Tx]
+	mempool    *mempool.Mempool
 
 	isBootstrapped *utils.Atomic[bool]
 	config         *config.Internal
@@ -90,14 +88,13 @@ type environment struct {
 	baseDB         *versiondb.Database
 	ctx            *snow.Context
 	fx             fx.Fx
-	state          state.State
-	mockedState    *state.MockState
+	state          *state.State
 	uptimes        uptime.Manager
 	utxosVerifier  utxo.Verifier
 	backend        *executor.Backend
 }
 
-func newEnvironment(t *testing.T, ctrl *gomock.Controller, f upgradetest.Fork) *environment {
+func newEnvironment(t *testing.T, f upgradetest.Fork) *environment {
 	res := &environment{
 		isBootstrapped: &utils.Atomic[bool]{},
 		config:         defaultConfig(f),
@@ -114,27 +111,17 @@ func newEnvironment(t *testing.T, ctrl *gomock.Controller, f upgradetest.Fork) *
 
 	res.fx = defaultFx(res.clk, res.ctx.Log, res.isBootstrapped.Get())
 
-	rewardsCalc := reward.NewCalculator(res.config.RewardConfig)
+	res.state = statetest.New(t, statetest.Config{
+		DB:           res.baseDB,
+		Genesis:      genesistest.NewBytes(t, genesistest.Config{}),
+		Validators:   res.config.Validators,
+		Upgrades:     res.config.UpgradeConfig,
+		Context:      res.ctx,
+		RewardConfig: res.config.RewardConfig,
+	})
 
-	if ctrl == nil {
-		res.state = statetest.New(t, statetest.Config{
-			DB:         res.baseDB,
-			Genesis:    genesistest.NewBytes(t, genesistest.Config{}),
-			Validators: res.config.Validators,
-			Context:    res.ctx,
-			Rewards:    rewardsCalc,
-		})
-
-		res.uptimes = uptime.NewManager(res.state, res.clk)
-		res.utxosVerifier = utxo.NewVerifier(res.ctx, res.clk, res.fx)
-	} else {
-		res.mockedState = state.NewMockState(ctrl)
-		res.uptimes = uptime.NewManager(res.mockedState, res.clk)
-		res.utxosVerifier = utxo.NewVerifier(res.ctx, res.clk, res.fx)
-
-		// setup expectations strictly needed for environment creation
-		res.mockedState.EXPECT().GetLastAccepted().Return(ids.GenerateTestID()).Times(1)
-	}
+	res.uptimes = uptime.NewManager(res.state, res.clk)
+	res.utxosVerifier = utxo.NewVerifier(res.ctx, res.clk, res.fx)
 
 	res.backend = &executor.Backend{
 		Config:       res.config,
@@ -144,7 +131,6 @@ func newEnvironment(t *testing.T, ctrl *gomock.Controller, f upgradetest.Fork) *
 		Fx:           res.fx,
 		FlowChecker:  res.utxosVerifier,
 		Uptimes:      res.uptimes,
-		Rewards:      rewardsCalc,
 	}
 
 	registerer := prometheus.NewRegistry()
@@ -152,40 +138,31 @@ func newEnvironment(t *testing.T, ctrl *gomock.Controller, f upgradetest.Fork) *
 	metrics := metrics.Noop
 
 	var err error
-	res.mempool, err = mempool.New("mempool", registerer)
+	res.mempool, err = mempool.New(
+		"mempool",
+		res.config.DynamicFeeConfig.Weights,
+		1_000_000,
+		res.ctx.AVAXAssetID,
+		registerer,
+	)
 	if err != nil {
 		panic(fmt.Errorf("failed to create mempool: %w", err))
 	}
 
-	if ctrl == nil {
-		res.blkManager = NewManager(
-			res.mempool,
-			metrics,
-			res.state,
-			res.backend,
-			validatorstest.Manager,
-		)
-		addSubnet(t, res)
-	} else {
-		res.blkManager = NewManager(
-			res.mempool,
-			metrics,
-			res.mockedState,
-			res.backend,
-			validatorstest.Manager,
-		)
-		// we do not add any subnet to state, since we can mock
-		// whatever we need
-	}
+	manager := platformvalidators.NewManager(*res.config, res.state, metrics, res.clk)
+
+	res.blkManager = NewManager(
+		res.mempool,
+		metrics,
+		res.state,
+		res.backend,
+		manager,
+	)
+	addSubnet(t, res)
 
 	t.Cleanup(func() {
 		res.ctx.Lock.Lock()
 		defer res.ctx.Lock.Unlock()
-
-		if res.mockedState != nil {
-			// state is mocked, nothing to do here
-			return
-		}
 
 		require := require.New(t)
 
@@ -248,7 +225,7 @@ func addSubnet(t testing.TB, env *environment) {
 	require.NoError(err)
 
 	genesisID := env.state.GetLastAccepted()
-	stateDiff, err := state.NewDiff(genesisID, env.blkManager)
+	stateDiff, err := state.NewDiff(genesisID, env.blkManager, state.StakerAdditionAfterDeletionForbidden)
 	require.NoError(err)
 
 	feeCalculator := state.PickFeeCalculator(env.config, stateDiff)
@@ -343,7 +320,7 @@ func addPendingValidator(
 	nodeID ids.NodeID,
 	rewardAddress ids.ShortID,
 	keys []*secp256k1.PrivateKey,
-) *txs.Tx {
+) *platform.Tx {
 	require := require.New(t)
 
 	wallet := newWallet(t, env, walletConfig{
@@ -351,7 +328,7 @@ func addPendingValidator(
 	})
 
 	addValidatorTx, err := wallet.IssueAddValidatorTx(
-		&txs.Validator{
+		&platform.Validator{
 			NodeID: nodeID,
 			Start:  uint64(startTime.Unix()),
 			End:    uint64(endTime.Unix()),
@@ -367,7 +344,7 @@ func addPendingValidator(
 
 	staker, err := state.NewPendingStaker(
 		addValidatorTx.ID(),
-		addValidatorTx.Unsigned.(*txs.AddValidatorTx),
+		addValidatorTx.Unsigned.(*platform.AddValidatorTx),
 	)
 	require.NoError(err)
 

@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package bootstrap
@@ -60,6 +60,7 @@ func New(
 		PutHandler:                  common.NewNoOpPutHandler(config.Ctx.Log),
 		QueryHandler:                common.NewNoOpQueryHandler(config.Ctx.Log),
 		ChitsHandler:                common.NewNoOpChitsHandler(config.Ctx.Log),
+		SimplexHandler:              common.NewNoOpSimplexHandler(config.Ctx.Log),
 		AppHandler:                  config.VM,
 
 		outstandingRequests:     bimap.New[common.Request, ids.ID](),
@@ -85,6 +86,7 @@ type Bootstrapper struct {
 	common.QueryHandler
 	common.ChitsHandler
 	common.AppHandler
+	common.SimplexHandler
 
 	metrics
 

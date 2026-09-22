@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package simplex
@@ -16,6 +16,8 @@ import (
 	"github.com/ava-labs/avalanchego/snow/engine/common"
 	"github.com/ava-labs/avalanchego/utils/logging"
 )
+
+var emptyBlacklist = simplex.Blacklist{}
 
 func TestBlockBuilder(t *testing.T) {
 	ctx := t.Context()
@@ -82,7 +84,7 @@ func TestBlockBuilder(t *testing.T) {
 			timeoutCtx, cancelCtx := context.WithTimeout(ctx, 100*time.Millisecond)
 			defer cancelCtx()
 
-			block, built := bb.BuildBlock(timeoutCtx, child.BlockHeader().ProtocolMetadata)
+			block, built := bb.BuildBlock(timeoutCtx, child.BlockHeader().ProtocolMetadata, emptyBlacklist)
 			require.Equal(t, tt.shouldBuild, built)
 			require.Equal(t, tt.expectedBlock, block)
 			if tt.expectedBlock == nil {
@@ -113,7 +115,7 @@ func TestBlockBuilderCancelContext(t *testing.T) {
 	timeoutCtx, cancelCtx := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancelCtx()
 
-	_, built := bb.BuildBlock(timeoutCtx, child.BlockHeader().ProtocolMetadata)
+	_, built := bb.BuildBlock(timeoutCtx, child.BlockHeader().ProtocolMetadata, emptyBlacklist)
 	require.False(t, built, "Block should not be built when context is cancelled")
 }
 
@@ -174,7 +176,7 @@ func TestBlockBuildingExponentialBackoff(t *testing.T) {
 	}
 
 	start := time.Now()
-	block, built := bb.BuildBlock(ctx, child.BlockHeader().ProtocolMetadata)
+	block, built := bb.BuildBlock(ctx, child.BlockHeader().ProtocolMetadata, emptyBlacklist)
 	endTime := time.Since(start)
 
 	require.True(t, built)

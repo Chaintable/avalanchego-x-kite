@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package txstest
@@ -15,8 +15,8 @@ import (
 	"github.com/ava-labs/avalanchego/vms/components/avax"
 	"github.com/ava-labs/avalanchego/vms/platformvm/config"
 	"github.com/ava-labs/avalanchego/vms/platformvm/fx"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
 	"github.com/ava-labs/avalanchego/vms/platformvm/state"
-	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
 	"github.com/ava-labs/avalanchego/vms/platformvm/warp/message"
 	"github.com/ava-labs/avalanchego/vms/secp256k1fx"
 	"github.com/ava-labs/avalanchego/wallet/chain/p/builder"
@@ -29,7 +29,7 @@ func NewWallet(
 	t testing.TB,
 	ctx *snow.Context,
 	config *config.Internal,
-	state state.State,
+	state *state.State,
 	kc *secp256k1fx.Keychain,
 	subnetIDs []ids.ID,
 	validationIDs []ids.ID,
@@ -56,7 +56,7 @@ func NewWallet(
 	for _, chainID := range chainIDs {
 		remoteChainUTXOs, _, _, err := avax.GetAtomicUTXOs(
 			ctx.SharedMemory,
-			txs.Codec,
+			platform.Codec,
 			chainID,
 			addrs,
 			ids.ShortEmpty,
@@ -86,7 +86,7 @@ func NewWallet(
 		require.NoError(err)
 
 		var owner message.PChainOwner
-		_, err = txs.Codec.Unmarshal(l1Validator.DeactivationOwner, &owner)
+		_, err = platform.Codec.Unmarshal(l1Validator.DeactivationOwner, &owner)
 		require.NoError(err)
 		owners[validationID] = &secp256k1fx.OutputOwners{
 			Threshold: owner.Threshold,
@@ -120,7 +120,7 @@ type client struct {
 }
 
 func (c *client) IssueTx(
-	tx *txs.Tx,
+	tx *platform.Tx,
 	options ...common.Option,
 ) error {
 	ops := common.NewOptions(options)

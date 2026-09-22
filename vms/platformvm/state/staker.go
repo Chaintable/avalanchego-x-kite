@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package state
@@ -11,7 +11,7 @@ import (
 
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ava-labs/avalanchego/utils/crypto/bls"
-	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
 )
 
 var _ btree.LessFunc[*Staker] = (*Staker).Less
@@ -40,7 +40,33 @@ type Staker struct {
 	// are grouped together. The ordering of these groups is documented in
 	// [priorities.go] and depends on if the stakers are in the pending or
 	// current validator set.
-	Priority txs.Priority
+	Priority platform.Priority
+}
+
+// Equals returns true if this staker is equal to the provided staker.
+// If s.Less(other) and other.Less(s) are both false, then it doesn't mean that s.Equals(other) is true.
+func (s *Staker) Equals(other *Staker) bool {
+	if s == nil && other == nil {
+		return true
+	}
+
+	if other == nil || s == nil {
+		return false
+	}
+
+	equalPKs := (s.PublicKey == nil && other.PublicKey == nil) ||
+		(s.PublicKey != nil && other.PublicKey != nil && s.PublicKey.Equals(other.PublicKey))
+
+	return s.TxID == other.TxID &&
+		s.NodeID == other.NodeID &&
+		equalPKs &&
+		s.SubnetID == other.SubnetID &&
+		s.Weight == other.Weight &&
+		s.StartTime.Equal(other.StartTime) &&
+		s.EndTime.Equal(other.EndTime) &&
+		s.PotentialReward == other.PotentialReward &&
+		s.NextTime.Equal(other.NextTime) &&
+		s.Priority == other.Priority
 }
 
 // A *Staker is considered to be less than another *Staker when:
@@ -68,23 +94,26 @@ func (s *Staker) Less(than *Staker) bool {
 	return bytes.Compare(s.TxID[:], than.TxID[:]) == -1
 }
 
+// NewCurrentStaker returns a current-priority Staker built from [platform.Staker]
+// with the provided start time, end time, weight, and potential reward.
 func NewCurrentStaker(
 	txID ids.ID,
-	staker txs.Staker,
+	staker platform.Staker,
 	startTime time.Time,
+	endTime time.Time,
+	weight uint64,
 	potentialReward uint64,
 ) (*Staker, error) {
 	publicKey, _, err := staker.PublicKey()
 	if err != nil {
 		return nil, err
 	}
-	endTime := staker.EndTime()
 	return &Staker{
 		TxID:            txID,
 		NodeID:          staker.NodeID(),
 		PublicKey:       publicKey,
 		SubnetID:        staker.SubnetID(),
-		Weight:          staker.Weight(),
+		Weight:          weight,
 		StartTime:       startTime,
 		EndTime:         endTime,
 		PotentialReward: potentialReward,
@@ -93,7 +122,9 @@ func NewCurrentStaker(
 	}, nil
 }
 
-func NewPendingStaker(txID ids.ID, staker txs.ScheduledStaker) (*Staker, error) {
+// NewPendingStaker returns a pending Staker built from a [platform.ScheduledStaker]
+// transaction.
+func NewPendingStaker(txID ids.ID, staker platform.ScheduledStaker) (*Staker, error) {
 	publicKey, _, err := staker.PublicKey()
 	if err != nil {
 		return nil, err

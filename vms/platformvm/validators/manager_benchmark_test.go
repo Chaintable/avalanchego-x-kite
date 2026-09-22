@@ -1,9 +1,10 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package validators
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -19,13 +20,12 @@ import (
 	"github.com/ava-labs/avalanchego/utils/logging"
 	"github.com/ava-labs/avalanchego/utils/timer/mockable"
 	"github.com/ava-labs/avalanchego/utils/units"
-	"github.com/ava-labs/avalanchego/vms/platformvm/block"
 	"github.com/ava-labs/avalanchego/vms/platformvm/config"
 	"github.com/ava-labs/avalanchego/vms/platformvm/genesis/genesistest"
 	"github.com/ava-labs/avalanchego/vms/platformvm/metrics"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
 	"github.com/ava-labs/avalanchego/vms/platformvm/state"
 	"github.com/ava-labs/avalanchego/vms/platformvm/state/statetest"
-	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
 )
 
 // BenchmarkGetValidatorSet generates 10k diffs and calculates the time to
@@ -102,7 +102,7 @@ func BenchmarkGetValidatorSet(b *testing.B) {
 }
 
 func addPrimaryValidator(
-	s state.State,
+	s *state.State,
 	startTime time.Time,
 	endTime time.Time,
 	height uint64,
@@ -123,12 +123,12 @@ func addPrimaryValidator(
 		EndTime:         endTime,
 		PotentialReward: 0,
 		NextTime:        endTime,
-		Priority:        txs.PrimaryNetworkValidatorCurrentPriority,
+		Priority:        platform.PrimaryNetworkValidatorCurrentPriority,
 	}); err != nil {
 		return ids.EmptyNodeID, err
 	}
 
-	blk, err := block.NewBanffStandardBlock(startTime, ids.GenerateTestID(), height, nil)
+	blk, err := platform.NewBanffStandardBlock(startTime, ids.GenerateTestID(), height, nil)
 	if err != nil {
 		return ids.EmptyNodeID, err
 	}
@@ -139,7 +139,7 @@ func addPrimaryValidator(
 }
 
 func addSubnetValidator(
-	s state.State,
+	s *state.State,
 	subnetID ids.ID,
 	startTime time.Time,
 	endTime time.Time,
@@ -155,12 +155,12 @@ func addSubnetValidator(
 		EndTime:         endTime,
 		PotentialReward: 0,
 		NextTime:        endTime,
-		Priority:        txs.SubnetPermissionlessValidatorCurrentPriority,
+		Priority:        platform.SubnetPermissionlessValidatorCurrentPriority,
 	}); err != nil {
 		return err
 	}
 
-	blk, err := block.NewBanffStandardBlock(startTime, ids.GenerateTestID(), height, nil)
+	blk, err := platform.NewBanffStandardBlock(startTime, ids.GenerateTestID(), height, nil)
 	if err != nil {
 		return err
 	}
@@ -171,7 +171,7 @@ func addSubnetValidator(
 }
 
 func addSubnetDelegator(
-	s state.State,
+	s *state.State,
 	subnetID ids.ID,
 	startTime time.Time,
 	endTime time.Time,
@@ -180,7 +180,7 @@ func addSubnetDelegator(
 ) error {
 	i := rand.Intn(len(nodeIDs)) //#nosec G404
 	nodeID := nodeIDs[i]
-	s.PutCurrentDelegator(&state.Staker{
+	if err := s.PutCurrentDelegator(&state.Staker{
 		TxID:            ids.GenerateTestID(),
 		NodeID:          nodeID,
 		SubnetID:        subnetID,
@@ -189,10 +189,12 @@ func addSubnetDelegator(
 		EndTime:         endTime,
 		PotentialReward: 0,
 		NextTime:        endTime,
-		Priority:        txs.SubnetPermissionlessDelegatorCurrentPriority,
-	})
+		Priority:        platform.SubnetPermissionlessDelegatorCurrentPriority,
+	}); err != nil {
+		return fmt.Errorf("putting current delegator: %w", err)
+	}
 
-	blk, err := block.NewBanffStandardBlock(startTime, ids.GenerateTestID(), height, nil)
+	blk, err := platform.NewBanffStandardBlock(startTime, ids.GenerateTestID(), height, nil)
 	if err != nil {
 		return err
 	}

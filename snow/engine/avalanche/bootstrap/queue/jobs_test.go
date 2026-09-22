@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package queue
@@ -177,7 +177,7 @@ func TestRemoveDependency(t *testing.T) {
 		case bytes.Equal(b, []byte{1}):
 			return job1, nil
 		default:
-			require.FailNow("Unknown job")
+			t.Fatal("Unknown job")
 			return nil, nil
 		}
 	}
@@ -351,7 +351,7 @@ func TestHandleJobWithMissingDependencyOnRunnableStack(t *testing.T) {
 		case bytes.Equal(b, []byte{1}):
 			return job1, nil
 		default:
-			require.FailNow("Unknown job")
+			t.Fatal("Unknown job")
 			return nil, nil
 		}
 	}
@@ -492,7 +492,7 @@ func TestClearAll(t *testing.T) {
 		case bytes.Equal(b, []byte{1}):
 			return job1, nil
 		default:
-			require.FailNow("Unknown job")
+			t.Fatal("Unknown job")
 			return nil, nil
 		}
 	}

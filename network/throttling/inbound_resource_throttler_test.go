@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package throttling
@@ -99,7 +99,7 @@ func TestSystemThrottler(t *testing.T) {
 	// and avoid flakiness. If the min re-check freq isn't honored,
 	// we'll wait [timeUntilAtDiskTarget].
 	case <-time.After(5 * maxRecheckDelay):
-		require.FailNow("should have returned after about [maxRecheckDelay]")
+		t.Fatal("should have returned after about [maxRecheckDelay]")
 	case <-onAcquire:
 	}
 
@@ -122,7 +122,7 @@ func TestSystemThrottler(t *testing.T) {
 	// and avoid flakiness. If the min re-check freq isn't honored,
 	// we'll wait [timeUntilAtDiskTarget].
 	case <-time.After(5 * maxRecheckDelay):
-		require.FailNow("should have returned after about [maxRecheckDelay]")
+		t.Fatal("should have returned after about [maxRecheckDelay]")
 	case <-onAcquire:
 	}
 }
@@ -161,6 +161,6 @@ func TestSystemThrottlerContextCancel(t *testing.T) {
 	case <-onAcquire:
 	case <-time.After(maxRecheckDelay / 2):
 		// Make sure Acquire returns well before the second check (i.e. "immediately")
-		require.Fail("should have returned immediately")
+		t.Fatal("should have returned immediately")
 	}
 }

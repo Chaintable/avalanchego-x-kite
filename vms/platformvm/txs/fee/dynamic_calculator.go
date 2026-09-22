@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package fee
@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/ava-labs/avalanchego/vms/components/gas"
-	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
 )
 
 var (
@@ -34,7 +34,7 @@ type dynamicCalculator struct {
 	price   gas.Price
 }
 
-func (c *dynamicCalculator) CalculateFee(tx txs.UnsignedTx) (uint64, error) {
+func (c *dynamicCalculator) CalculateFee(tx platform.UnsignedTx) (uint64, error) {
 	complexity, err := TxComplexity(tx)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %w", ErrCalculatingComplexity, err)

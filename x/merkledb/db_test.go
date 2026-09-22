@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package merkledb
@@ -721,7 +721,7 @@ func Test_MerkleDB_Random_Insert_Ordering(t *testing.T) {
 	for i := 0; i < numRuns; i++ {
 		now := time.Now().UnixNano()
 		t.Logf("seed for iter %d: %d", i, now)
-		r := rand.New(rand.NewSource(now)) // #nosec G404
+		r := rand.New(rand.NewSource(now))
 
 		// Insert key-value pairs into a database.
 		ops := make([]database.BatchOp, 0, numKeyValues)
@@ -780,7 +780,7 @@ func TestMerkleDBClear(t *testing.T) {
 
 	now := time.Now().UnixNano()
 	t.Logf("seed: %d", now)
-	r := rand.New(rand.NewSource(now)) // #nosec G404
+	r := rand.New(rand.NewSource(now))
 
 	insertRandomKeyValues(
 		require,
@@ -822,14 +822,13 @@ func FuzzMerkleDBEmptyRandomizedActions(f *testing.F) {
 			if size == 0 {
 				t.SkipNow()
 			}
-			require := require.New(t)
-			r := rand.New(rand.NewSource(randSeed)) // #nosec G404
+			r := rand.New(rand.NewSource(randSeed))
 			for _, ts := range validTokenSizes {
 				runRandDBTest(
-					require,
+					t,
 					r,
 					generateRandTest(
-						require,
+						t,
 						r,
 						size,
 						0.01, /*checkHashProbability*/
@@ -850,14 +849,13 @@ func FuzzMerkleDBInitialValuesRandomizedActions(f *testing.F) {
 		if numSteps == 0 {
 			t.SkipNow()
 		}
-		require := require.New(t)
-		r := rand.New(rand.NewSource(randSeed)) // #nosec G404
+		r := rand.New(rand.NewSource(randSeed))
 		for _, ts := range validTokenSizes {
 			runRandDBTest(
-				require,
+				t,
 				r,
 				generateInitialValues(
-					require,
+					t,
 					r,
 					initialValues,
 					numSteps,
@@ -890,10 +888,13 @@ const (
 	opMax // boundary value, not an actual op
 )
 
-func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest, tokenSize int) {
+func runRandDBTest(t testing.TB, r *rand.Rand, rt randTest, tokenSize int) {
+	require := require.New(t)
+	ctx := t.Context()
+
 	config := NewConfig()
 	config.BranchFactor = tokenSizeToBranchFactor[tokenSize]
-	db, err := New(context.Background(), memdb.New(), config)
+	db, err := New(ctx, memdb.New(), config)
 	require.NoError(err)
 
 	maxProofLen := 100
@@ -907,7 +908,7 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest, token
 		pastRoots            = []ids.ID{}
 	)
 
-	startRoot, err := db.GetMerkleRoot(context.Background())
+	startRoot, err := db.GetMerkleRoot(ctx)
 	require.NoError(err)
 
 	for i, step := range rt {
@@ -924,7 +925,7 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest, token
 			uncommittedDeletes.Add(ToKey(step.key))
 			delete(uncommittedKeyValues, ToKey(step.key))
 		case opGenerateRangeProof:
-			root, err := db.GetMerkleRoot(context.Background())
+			root, err := db.GetMerkleRoot(ctx)
 			require.NoError(err)
 
 			if len(pastRoots) > 0 {
@@ -940,7 +941,7 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest, token
 				end = maybe.Some(step.value)
 			}
 
-			rangeProof, err := db.GetRangeProofAtRoot(context.Background(), root, start, end, maxProofLen)
+			rangeProof, err := db.GetRangeProofAtRoot(ctx, root, start, end, maxProofLen)
 			if root == ids.Empty {
 				require.ErrorIs(err, ErrEmptyProof)
 				continue
@@ -949,7 +950,7 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest, token
 			require.LessOrEqual(len(rangeProof.KeyChanges), maxProofLen)
 
 			require.NoError(rangeProof.Verify(
-				context.Background(),
+				ctx,
 				start,
 				end,
 				root,
@@ -958,7 +959,7 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest, token
 				maxProofLen,
 			))
 		case opGenerateChangeProof:
-			root, err := db.GetMerkleRoot(context.Background())
+			root, err := db.GetMerkleRoot(ctx)
 			require.NoError(err)
 
 			if len(pastRoots) > 1 {
@@ -975,7 +976,7 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest, token
 				end = maybe.Some(step.value)
 			}
 
-			changeProof, err := db.GetChangeProof(context.Background(), startRoot, root, start, end, maxProofLen)
+			changeProof, err := db.GetChangeProof(ctx, startRoot, root, start, end, maxProofLen)
 			if startRoot == root {
 				require.ErrorIs(err, errSameRoot)
 				continue
@@ -991,7 +992,7 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest, token
 			require.NoError(err)
 
 			require.NoError(changeProofDB.VerifyChangeProof(
-				context.Background(),
+				ctx,
 				changeProof,
 				start,
 				end,
@@ -999,7 +1000,7 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest, token
 				maxProofLen,
 			))
 		case opWriteBatch:
-			oldRoot, err := db.GetMerkleRoot(context.Background())
+			oldRoot, err := db.GetMerkleRoot(ctx)
 			require.NoError(err)
 
 			require.NoError(currentBatch.Write())
@@ -1017,7 +1018,7 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest, token
 			}
 			uncommittedDeletes.Clear()
 
-			newRoot, err := db.GetMerkleRoot(context.Background())
+			newRoot, err := db.GetMerkleRoot(ctx)
 			require.NoError(err)
 
 			if oldRoot != newRoot {
@@ -1055,29 +1056,31 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest, token
 				})
 			}
 
-			view, err := newDB.NewView(context.Background(), ViewChanges{BatchOps: ops})
+			view, err := newDB.NewView(ctx, ViewChanges{BatchOps: ops})
 			require.NoError(err)
 
 			// Check that the root of the view is the same as the root of [db]
-			newRoot, err := view.GetMerkleRoot(context.Background())
+			newRoot, err := view.GetMerkleRoot(ctx)
 			require.NoError(err)
 
-			dbRoot, err := db.GetMerkleRoot(context.Background())
+			dbRoot, err := db.GetMerkleRoot(ctx)
 			require.NoError(err)
 			require.Equal(dbRoot, newRoot)
 		default:
-			require.FailNow("unknown op")
+			t.Fatal("unknown op")
 		}
 	}
 }
 
 func generateRandTestWithKeys(
-	require *require.Assertions,
+	t testing.TB,
 	r *rand.Rand,
 	allKeys [][]byte,
 	size uint,
 	checkHashProbability float64,
 ) randTest {
+	require := require.New(t)
+
 	const nilEndProbability = 0.1
 
 	genKey := func() []byte {
@@ -1106,7 +1109,7 @@ func generateRandTestWithKeys(
 	genEnd := func(key []byte) []byte {
 		// got is defined because if a rand method is used
 		// in an if statement, the nosec directive doesn't work.
-		got := r.Float64() // #nosec G404
+		got := r.Float64()
 		if got < nilEndProbability {
 			return nil
 		}
@@ -1155,7 +1158,7 @@ func generateRandTestWithKeys(
 }
 
 func generateInitialValues(
-	require *require.Assertions,
+	t testing.TB,
 	r *rand.Rand,
 	numInitialKeyValues uint,
 	size uint,
@@ -1194,7 +1197,7 @@ func generateInitialValues(
 		}
 		// got is defined because if a rand method is used
 		// in an if statement, the nosec directive doesn't work.
-		got := r.Float64() // #nosec G404
+		got := r.Float64()
 		if got < nilValueProbability {
 			step.value = nil
 		} else {
@@ -1203,12 +1206,12 @@ func generateInitialValues(
 		steps = append(steps, step)
 	}
 	steps = append(steps, randTestStep{op: opWriteBatch})
-	steps = append(steps, generateRandTestWithKeys(require, r, allKeys, size, percentChanceToFullHash)...)
+	steps = append(steps, generateRandTestWithKeys(t, r, allKeys, size, percentChanceToFullHash)...)
 	return steps
 }
 
-func generateRandTest(require *require.Assertions, r *rand.Rand, size uint, percentChanceToFullHash float64) randTest {
-	return generateRandTestWithKeys(require, r, [][]byte{}, size, percentChanceToFullHash)
+func generateRandTest(t testing.TB, r *rand.Rand, size uint, percentChanceToFullHash float64) randTest {
+	return generateRandTestWithKeys(t, r, [][]byte{}, size, percentChanceToFullHash)
 }
 
 // Inserts [n] random key/value pairs into each database.
@@ -1400,7 +1403,7 @@ func Test_FindNextKey_InSync(t *testing.T) {
 	now := time.Now().UnixNano()
 
 	t.Logf("seed: %d", now)
-	r := rand.New(rand.NewSource(now)) // #nosec G404
+	r := rand.New(rand.NewSource(now))
 	dbToSync, err := generateTrie(t, r, 1000)
 	require.NoError(err)
 
@@ -1533,7 +1536,7 @@ func Test_FindNextKey_ExtraValues(t *testing.T) {
 	ctx := t.Context()
 	now := time.Now().UnixNano()
 	t.Logf("seed: %d", now)
-	r := rand.New(rand.NewSource(now)) // #nosec G404
+	r := rand.New(rand.NewSource(now))
 	dbToSync, err := generateTrie(t, r, 1000)
 	require.NoError(err)
 
@@ -1602,7 +1605,7 @@ func Test_FindNextKey_DifferentChild(t *testing.T) {
 	ctx := t.Context()
 	now := time.Now().UnixNano()
 	t.Logf("seed: %d", now)
-	r := rand.New(rand.NewSource(now)) // #nosec G404
+	r := rand.New(rand.NewSource(now))
 	dbToSync, err := generateTrie(t, r, 500)
 	require.NoError(err)
 
@@ -1646,7 +1649,7 @@ func TestFindNextKeyRandom(t *testing.T) {
 	now := time.Now().UnixNano()
 	ctx := t.Context()
 	t.Logf("seed: %d", now)
-	rand := rand.New(rand.NewSource(now)) // #nosec G404
+	rand := rand.New(rand.NewSource(now))
 	require := require.New(t)
 
 	// Create a "remote" database and "local" database

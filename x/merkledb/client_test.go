@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package merkledb
@@ -18,23 +18,22 @@ import (
 	"github.com/ava-labs/avalanchego/snow/engine/common"
 	"github.com/ava-labs/avalanchego/trace"
 
+	merklesync "github.com/ava-labs/avalanchego/database/merkle/sync"
 	pb "github.com/ava-labs/avalanchego/proto/pb/sync"
-	xsync "github.com/ava-labs/avalanchego/x/sync"
 )
 
 var (
-	_ p2p.Handler = (*xsync.GetChangeProofHandler[*RangeProof, *ChangeProof])(nil)
-	_ p2p.Handler = (*xsync.GetRangeProofHandler[*RangeProof, *ChangeProof])(nil)
+	_ p2p.Handler = (*merklesync.ProofHandler[*RangeProof, *ChangeProof])(nil)
 	_ p2p.Handler = (*flakyHandler)(nil)
 )
 
 func newDefaultDBConfig() Config {
 	return Config{
 		IntermediateWriteBatchSize:  100,
-		HistoryLength:               xsync.DefaultRequestKeyLimit,
-		ValueNodeCacheSize:          xsync.DefaultRequestKeyLimit,
-		IntermediateWriteBufferSize: xsync.DefaultRequestKeyLimit,
-		IntermediateNodeCacheSize:   xsync.DefaultRequestKeyLimit,
+		HistoryLength:               merklesync.DefaultRequestKeyLimit,
+		ValueNodeCacheSize:          merklesync.DefaultRequestKeyLimit,
+		IntermediateWriteBufferSize: merklesync.DefaultRequestKeyLimit,
+		IntermediateNodeCacheSize:   merklesync.DefaultRequestKeyLimit,
 		Reg:                         prometheus.NewRegistry(),
 		Tracer:                      trace.Noop,
 		BranchFactor:                BranchFactor16,
@@ -47,9 +46,8 @@ func newFlakyRangeProofHandler(
 	modifyResponse func(response *RangeProof),
 ) p2p.Handler {
 	var (
-		c                   = counter{m: 2}
-		rangeProofMarshaler = rangeProofMarshaler
-		handler             = xsync.NewGetRangeProofHandler(db, rangeProofMarshaler)
+		c       = counter{m: 2}
+		handler = newTestProofHandler(t, db)
 	)
 
 	return &p2p.TestHandler{
@@ -59,7 +57,9 @@ func newFlakyRangeProofHandler(
 				return nil, appErr
 			}
 
-			proof, err := rangeProofMarshaler.Unmarshal(responseBytes)
+			response := &pb.ProofResponse{}
+			require.NoError(t, proto.Unmarshal(responseBytes, response))
+			proof, err := rangeProofMarshaler.Unmarshal(response.GetRangeProof())
 			require.NoError(t, err)
 
 			// Half of requests are modified
@@ -68,6 +68,15 @@ func newFlakyRangeProofHandler(
 			}
 
 			responseBytes, err = rangeProofMarshaler.Marshal(proof)
+			if err != nil {
+				return nil, &common.AppError{Code: 123, Message: err.Error()}
+			}
+
+			responseBytes, err = proto.Marshal(&pb.ProofResponse{
+				Response: &pb.ProofResponse_RangeProof{
+					RangeProof: responseBytes,
+				},
+			})
 			if err != nil {
 				return nil, &common.AppError{Code: 123, Message: err.Error()}
 			}
@@ -83,10 +92,8 @@ func newFlakyChangeProofHandler(
 	modifyResponse func(response *ChangeProof),
 ) p2p.Handler {
 	var (
-		c                    = counter{m: 2}
-		rangeProofMarshaler  = rangeProofMarshaler
-		changeProofMarshaler = changeProofMarshaler
-		handler              = xsync.NewGetChangeProofHandler(db, rangeProofMarshaler, changeProofMarshaler)
+		c       = counter{m: 2}
+		handler = newTestProofHandler(t, db)
 	)
 
 	return &p2p.TestHandler{
@@ -96,7 +103,7 @@ func newFlakyChangeProofHandler(
 				return nil, appErr
 			}
 
-			response := &pb.GetChangeProofResponse{}
+			response := &pb.ProofResponse{}
 			require.NoError(t, proto.Unmarshal(responseBytes, response))
 
 			proof, err := changeProofMarshaler.Unmarshal(response.GetChangeProof())
@@ -109,8 +116,8 @@ func newFlakyChangeProofHandler(
 
 			proofBytes, err := changeProofMarshaler.Marshal(proof)
 			require.NoError(t, err)
-			responseBytes, err = proto.Marshal(&pb.GetChangeProofResponse{
-				Response: &pb.GetChangeProofResponse_ChangeProof{
+			responseBytes, err = proto.Marshal(&pb.ProofResponse{
+				Response: &pb.ProofResponse_ChangeProof{
 					ChangeProof: proofBytes,
 				},
 			})

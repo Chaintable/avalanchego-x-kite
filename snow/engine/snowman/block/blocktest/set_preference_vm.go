@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package blocktest
@@ -35,8 +35,8 @@ func (vm *SetPreferenceVM) SetPreferenceWithContext(ctx context.Context, id ids.
 	if vm.SetPreferenceWithContextF != nil {
 		return vm.SetPreferenceWithContextF(ctx, id, blockCtx)
 	}
-	if vm.CantSetPreferenceWithContext && vm.T != nil {
-		require.FailNow(vm.T, errSetPreferenceWithContext.Error())
+	if vm.T != nil {
+		require.False(vm.T, vm.CantSetPreferenceWithContext, errSetPreferenceWithContext)
 	}
 	return errSetPreferenceWithContext
 }

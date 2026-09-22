@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package chain
@@ -527,7 +527,7 @@ func TestStateBytesToIDCache(t *testing.T) {
 
 	getBlock, parseBlock := createInternalBlockFuncs(testBlks)
 	buildBlock := func(context.Context) (snowman.Block, error) {
-		require.FailNow("shouldn't have been called")
+		t.Fatal("shouldn't have been called")
 		return nil, nil
 	}
 

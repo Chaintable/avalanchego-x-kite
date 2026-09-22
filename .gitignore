@@ -1,3 +1,9 @@
+# Bazel symlinks
+/bazel-*
+
+# Local bazel overrides
+/.bazelrc.local
+
 *.log
 *~
 .DS_Store
@@ -43,6 +49,7 @@ tmp/
 
 bin/
 build/
+!.bazel/patches/build_files/**/build/
 
 keys/staker.*
 
@@ -57,11 +64,13 @@ tests/upgrade/upgrade.test
 
 vendor
 
-**/testdata
-
 .direnv
 # Personal extension to .envrc
 .envrc.local
 
 # debug files
 __debug_*
+
+# polyrepo
+polyrepo.log
+/firewood/

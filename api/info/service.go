@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package info
@@ -73,7 +73,7 @@ type Info struct {
 	myIP         *utils.Atomic[netip.AddrPort]
 	networking   network.Network
 	chainManager chains.Manager
-	vmManager    vms.Manager
+	vmManager    *vms.Manager
 	benchlist    benchlist.Manager
 }
 
@@ -82,7 +82,7 @@ type Parameters struct {
 	NodeID    ids.NodeID
 	NodePOP   *signer.ProofOfPossession
 	NetworkID uint32
-	VMManager vms.Manager
+	VMManager *vms.Manager
 	Upgrades  upgrade.Config
 
 	TxFee            uint64
@@ -94,7 +94,7 @@ func NewService(
 	log logging.Logger,
 	validators validators.Manager,
 	chainManager chains.Manager,
-	vmManager vms.Manager,
+	vmManager *vms.Manager,
 	myIP *utils.Atomic[netip.AddrPort],
 	network network.Network,
 	benchlist benchlist.Manager,
@@ -140,7 +140,7 @@ func (i *Info) GetNodeVersion(_ *http.Request, _ *struct{}, reply *GetNodeVersio
 	}
 
 	reply.Version = i.Version.String()
-	reply.DatabaseVersion = version.CurrentDatabase.String()
+	reply.DatabaseVersion = version.CurrentDatabase
 	reply.RPCProtocolVersion = json.Uint32(version.RPCChainVMProtocol)
 	reply.GitCommit = version.GitCommit
 	reply.VMVersions = vmVersions

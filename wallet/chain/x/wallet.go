@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package x
@@ -314,7 +314,7 @@ func (w *wallet) IssueTx(
 		return w.backend.AcceptTx(ctx, tx)
 	}
 
-	if err := avm.AwaitTxAccepted(w.client, ctx, txID, ops.PollFrequency()); err != nil {
+	if err := w.client.AwaitTxAccepted(ctx, txID, ops.PollFrequency()); err != nil {
 		return err
 	}
 

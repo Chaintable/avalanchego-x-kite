@@ -1,15 +1,11 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package e2e_test
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"testing"
-	"time"
 
-	"github.com/ava-labs/coreth/plugin/evm"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -22,11 +18,10 @@ import (
 	_ "github.com/ava-labs/avalanchego/tests/e2e/x"
 	_ "github.com/ava-labs/avalanchego/tests/e2e/x/transfer"
 
-	"github.com/ava-labs/avalanchego/config"
+	"github.com/ava-labs/avalanchego/graft/coreth/plugin/evm"
 	"github.com/ava-labs/avalanchego/tests/e2e/vms"
 	"github.com/ava-labs/avalanchego/tests/fixture/e2e"
 	"github.com/ava-labs/avalanchego/tests/fixture/tmpnet"
-	"github.com/ava-labs/avalanchego/upgrade"
 )
 
 func TestE2E(t *testing.T) {
@@ -50,27 +45,13 @@ var _ = ginkgo.SynchronizedBeforeSuite(func() []byte {
 	nodes := tmpnet.NewNodesOrPanic(nodeCount)
 	subnets := vms.XSVMSubnetsOrPanic(nodes...)
 
-	upgrades := upgrade.Default
-	if flagVars.ActivateGranite() {
-		upgrades.GraniteTime = upgrade.InitiallyActiveTime
-		upgrades.GraniteEpochDuration = 4 * time.Second
-	} else {
-		upgrades.GraniteTime = upgrade.UnscheduledActivationTime
-	}
+	upgrades := tmpnet.UpgradeConfig(flagVars.ActivateLatestAfter())
 	tc.Log().Info("setting upgrades",
 		zap.Reflect("upgrades", upgrades),
 	)
 
-	upgradeJSON, err := json.Marshal(upgrades)
+	defaultFlags, err := tmpnet.UpgradeFlags(upgrades)
 	require.NoError(tc, err)
-
-	upgradeBase64 := base64.StdEncoding.EncodeToString(upgradeJSON)
-
-	defaultFlags := tmpnet.FlagsMap{
-		config.UpgradeFileContentKey: upgradeBase64,
-		// Ensure a min stake duration compatible with testing staking logic
-		config.MinStakeDurationKey: "1s",
-	}
 	defaultFlags.SetDefaults(tmpnet.DefaultE2EFlags())
 
 	return e2e.NewTestEnvironment(

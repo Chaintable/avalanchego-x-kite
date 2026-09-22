@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package network
@@ -150,8 +150,8 @@ type network struct {
 	// to connect to the peer. An entry is deleted from this set once we have
 	// finished the handshake.
 	trackedIPs      map[ids.NodeID]*trackedIP
-	connectingPeers peer.Set
-	connectedPeers  peer.Set
+	connectingPeers *peer.Set
+	connectedPeers  *peer.Set
 	closing         bool
 
 	startupTime time.Time
@@ -319,14 +319,14 @@ func NewNetwork(
 }
 
 func (n *network) Send(
-	msg message.OutboundMessage,
+	msg *message.OutboundMessage,
 	config common.SendConfig,
 	subnetID ids.ID,
 	allower subnets.Allower,
 ) set.Set[ids.NodeID] {
 	namedPeers := n.getPeers(config.NodeIDs, subnetID, allower)
 	n.peerConfig.Metrics.MultipleSendsFailed(
-		msg.Op(),
+		msg.Op,
 		config.NodeIDs.Len()-len(namedPeers),
 	)
 
@@ -339,7 +339,7 @@ func (n *network) Send(
 	// send to peers and update metrics
 	//
 	// Note: It is guaranteed that namedPeers and sampledPeers are disjoint.
-	for _, peers := range [][]peer.Peer{namedPeers, sampledPeers} {
+	for _, peers := range [][]*peer.Peer{namedPeers, sampledPeers} {
 		for _, peer := range peers {
 			if peer.Send(n.onCloseCtx, msg) {
 				sentTo.Add(peer.ID())
@@ -760,8 +760,8 @@ func (n *network) getPeers(
 	nodeIDs set.Set[ids.NodeID],
 	subnetID ids.ID,
 	allower subnets.Allower,
-) []peer.Peer {
-	peers := make([]peer.Peer, 0, nodeIDs.Len())
+) []*peer.Peer {
+	peers := make([]*peer.Peer, 0, nodeIDs.Len())
 
 	n.peersLock.RLock()
 	defer n.peersLock.RUnlock()
@@ -791,7 +791,7 @@ func (n *network) samplePeers(
 	config common.SendConfig,
 	subnetID ids.ID,
 	allower subnets.Allower,
-) []peer.Peer {
+) []*peer.Peer {
 	// As an optimization, if there are fewer validators than
 	// [numValidatorsToSample], only attempt to sample [numValidatorsToSample]
 	// validators to potentially avoid iterating over the entire peer set.
@@ -802,7 +802,7 @@ func (n *network) samplePeers(
 
 	return n.connectedPeers.Sample(
 		numValidatorsToSample+config.NonValidators+config.Peers,
-		func(p peer.Peer) bool {
+		func(p *peer.Peer) bool {
 			// Only return peers that are tracking [subnetID]
 			if trackedSubnets := p.TrackedSubnets(); !trackedSubnets.Contains(subnetID) {
 				return false
@@ -859,7 +859,7 @@ func (n *network) disconnectedFromConnecting(nodeID ids.NodeID) {
 	n.metrics.disconnected.Inc()
 }
 
-func (n *network) disconnectedFromConnected(peer peer.Peer, nodeID ids.NodeID) {
+func (n *network) disconnectedFromConnected(peer *peer.Peer, nodeID ids.NodeID) {
 	n.ipTracker.Disconnected(nodeID)
 	n.router.Disconnected(nodeID)
 
@@ -1096,7 +1096,7 @@ func (n *network) upgrade(conn net.Conn, upgrader peer.Upgrader, isIngress bool)
 		_ = tlsConn.Close()
 		n.peerConfig.Log.Verbo(
 			"dropping connection",
-			zap.String("reason", "already connecting to peer"),
+			zap.String("reason", "already connected to peer"),
 			zap.Stringer("nodeID", nodeID),
 		)
 		return nil
@@ -1185,7 +1185,16 @@ func (n *network) NodeUptime() (UptimeResult, error) {
 		totalWeight          = float64(totalWeightInt)
 		totalWeightedPercent = 100 * float64(myStake)
 		rewardingStake       = float64(myStake)
+		uptimeRequirement    = n.config.UptimeRequirement
 	)
+
+	startTime, err := n.config.UptimeCalculator.GetStartTime(n.config.MyNodeID)
+	if err != nil {
+		return UptimeResult{}, fmt.Errorf("error while fetching local validator start time %w", err)
+	}
+	if n.config.UpgradeConfig.IsHeliconActivated(startTime) {
+		uptimeRequirement = genesis.ACP267UptimeRequirement
+	}
 
 	n.peersLock.RLock()
 	defer n.peersLock.RUnlock()
@@ -1205,8 +1214,7 @@ func (n *network) NodeUptime() (UptimeResult, error) {
 		weightFloat := float64(weight)
 		totalWeightedPercent += percent * weightFloat
 
-		// if this peer thinks we're above requirement add the weight
-		if percent/100 >= n.config.UptimeRequirement {
+		if percent/100 >= uptimeRequirement {
 			rewardingStake += weightFloat
 		}
 	}

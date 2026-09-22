@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package avalanche
@@ -31,6 +31,7 @@ type engine struct {
 	common.ChitsHandler
 	common.AppHandler
 	common.InternalHandler
+	common.SimplexHandler
 
 	ctx *snow.ConsensusContext
 }
@@ -51,6 +52,7 @@ func New(
 		ChitsHandler:                common.NewNoOpChitsHandler(ctx.Log),
 		AppHandler:                  common.NewNoOpAppHandler(ctx.Log),
 		InternalHandler:             common.NewNoOpInternalHandler(ctx.Log),
+		SimplexHandler:              common.NewNoOpSimplexHandler(ctx.Log),
 		ctx:                         ctx,
 	}
 }

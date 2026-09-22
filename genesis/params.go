@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package genesis
@@ -11,6 +11,10 @@ import (
 	"github.com/ava-labs/avalanchego/vms/platformvm/reward"
 	"github.com/ava-labs/avalanchego/vms/platformvm/validators/fee"
 )
+
+// ACP267UptimeRequirement is the 90% Primary Network uptime requirement
+// introduced by ACP-267.
+const ACP267UptimeRequirement = .9
 
 type StakingConfig struct {
 	// Staking uptime requirements
@@ -31,6 +35,9 @@ type StakingConfig struct {
 	// MaxStakeDuration is the maximum amount of time a validator can validate
 	// for in a single period.
 	MaxStakeDuration time.Duration `json:"maxStakeDuration"`
+	// HeliconMinStakeDuration is the minimum staking duration for the primary
+	// network after the Helicon upgrade (ACP-273).
+	HeliconMinStakeDuration time.Duration `json:"heliconMinStakeDuration"`
 	// RewardConfig is the config for the reward function.
 	RewardConfig reward.Config `json:"rewardConfig"`
 }

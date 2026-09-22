@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package lru
@@ -48,6 +48,27 @@ func TestSizedCacheWrongKeyEvictionRegression(t *testing.T) {
 
 	_, ok = cache.Get("dd")
 	require.True(ok)
+}
+
+// Overwriting the oldest key with a larger value must not subtract the old
+// size twice.
+func TestSizedCacheOverwriteOldestRegression(t *testing.T) {
+	require := require.New(t)
+
+	cache := NewSizedCache(
+		100,
+		func(_ string, v int) int {
+			return v
+		},
+	)
+
+	cache.Put("a", 60)
+	cache.Put("b", 40)
+	cache.Put("a", 61)
+
+	_, ok := cache.Get("b")
+	require.False(ok, "Get(b)")
+	require.Equal(0.61, cache.PortionFilled(), "PortionFilled()")
 }
 
 func TestSizedLRUSizeAlteringRegression(t *testing.T) {

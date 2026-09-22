@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package avm
@@ -6,8 +6,6 @@ package avm
 import (
 	"errors"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -50,7 +48,7 @@ func (fx *FxTest) Initialize(vm interface{}) error {
 		return nil
 	}
 	if fx.T != nil {
-		require.FailNow(fx.T, errCalledInitialize.Error())
+		fx.T.Fatal(errCalledInitialize)
 	}
 	return errCalledInitialize
 }
@@ -63,7 +61,7 @@ func (fx *FxTest) Bootstrapping() error {
 		return nil
 	}
 	if fx.T != nil {
-		require.FailNow(fx.T, errCalledBootstrapping.Error())
+		fx.T.Fatal(errCalledBootstrapping)
 	}
 	return errCalledBootstrapping
 }
@@ -76,7 +74,7 @@ func (fx *FxTest) Bootstrapped() error {
 		return nil
 	}
 	if fx.T != nil {
-		require.FailNow(fx.T, errCalledBootstrapped.Error())
+		fx.T.Fatal(errCalledBootstrapped)
 	}
 	return errCalledBootstrapped
 }
@@ -89,7 +87,7 @@ func (fx *FxTest) VerifyTransfer(tx, in, cred, utxo interface{}) error {
 		return nil
 	}
 	if fx.T != nil {
-		require.FailNow(fx.T, errCalledVerifyTransfer.Error())
+		fx.T.Fatal(errCalledVerifyTransfer)
 	}
 	return errCalledVerifyTransfer
 }
@@ -102,7 +100,7 @@ func (fx *FxTest) VerifyOperation(tx, op, cred interface{}, utxos []interface{})
 		return nil
 	}
 	if fx.T != nil {
-		require.FailNow(fx.T, errCalledVerifyOperation.Error())
+		fx.T.Fatal(errCalledVerifyOperation)
 	}
 	return errCalledVerifyOperation
 }
