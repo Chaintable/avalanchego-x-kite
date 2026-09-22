@@ -1,0 +1,42 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//.bazel:defs.bzl", "graft_go_test")
+
+package(default_visibility = [
+    "//graft/subnet-evm:__subpackages__",
+    "//graft/subnet-evm:external_consumers",
+])
+
+go_library(
+    name = "txdenylist",
+    srcs = [
+        "config.go",
+        "contract.go",
+        "module.go",
+    ],
+    importpath = "github.com/ava-labs/avalanchego/graft/subnet-evm/precompile/contracts/txdenylist",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//graft/subnet-evm/precompile/allowlist",
+        "//graft/subnet-evm/precompile/contract",
+        "//graft/subnet-evm/precompile/modules",
+        "//graft/subnet-evm/precompile/precompileconfig",
+        "@com_github_ava_labs_libevm//common",
+    ],
+)
+
+graft_go_test(
+    name = "txdenylist_test",
+    srcs = [
+        "config_test.go",
+        "contract_test.go",
+    ],
+    deps = [
+        ":txdenylist",
+        "//graft/subnet-evm/precompile/allowlist/allowlisttest",
+        "//graft/subnet-evm/precompile/precompileconfig",
+        "//graft/subnet-evm/precompile/precompiletest",
+        "//utils",
+        "@com_github_ava_labs_libevm//common",
+        "@org_uber_go_mock//gomock",
+    ],
+)

@@ -20,5 +20,6 @@ go_library(
         "//graft/subnet-evm/miner",
         "@com_github_ava_labs_libevm//common",
         "@com_github_ava_labs_libevm//params",
+        "@com_github_chaintable_pipeline//tracer",
     ],
 )

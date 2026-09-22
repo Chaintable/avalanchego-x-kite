@@ -39,6 +39,11 @@ GO_OVERRIDES = {
         "patches": ["//.bazel/patches:com_github_ava_labs_libevm.patch"],
         "gazelle_directives": ["gazelle:exclude crypto/secp256k1/**"],
     },
+    "go.etcd.io/etcd/api/v3": {
+        # Use the checked-in gogo-generated Go files; proto imports use the
+        # etcd monorepo layout, which differs from this Go module's layout.
+        "gazelle_directives": ["gazelle:proto disable_global"],
+    },
 }
 
 [go_deps.module_override(
@@ -69,6 +74,7 @@ use_repo(
     "com_github_ava_labs_simplex",
     "com_github_btcsuite_btcd_btcutil",
     "com_github_cespare_xxhash_v2",
+    "com_github_chaintable_pipeline",
     "com_github_cockroachdb_pebble",
     "com_github_compose_spec_compose_go",
     "com_github_datadog_zstd",
@@ -77,6 +83,7 @@ use_repo(
     "com_github_decred_dcrd_dcrec_secp256k1_v4",
     "com_github_fjl_gencodec",
     "com_github_go_cmd_cmd",
+    "com_github_gogo_protobuf",
     "com_github_google_btree",
     "com_github_google_go_cmp",
     "com_github_google_renameio_v2",

@@ -19,6 +19,7 @@ go_library(
         "//graft/subnet-evm/params",
         "//graft/subnet-evm/plugin/evm/vmerrors",
         "//graft/subnet-evm/precompile/contracts/txallowlist",
+        "//graft/subnet-evm/precompile/contracts/txdenylist",
         "@com_github_ava_labs_libevm//common",
         "@com_github_ava_labs_libevm//core",
         "@com_github_ava_labs_libevm//core/state",

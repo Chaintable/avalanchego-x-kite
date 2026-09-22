@@ -20,6 +20,7 @@ go_library(
         "//utils/set",
         "@com_github_ava_labs_libevm//common",
         "@com_github_ava_labs_libevm//common/hexutil",
+        "@com_github_chaintable_pipeline//tracer",
         "@com_github_spf13_cast//:cast",
     ],
 )

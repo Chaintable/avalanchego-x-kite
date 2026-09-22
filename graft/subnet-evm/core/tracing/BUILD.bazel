@@ -1,0 +1,19 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+package(default_visibility = [
+    "//graft/subnet-evm:__subpackages__",
+    "//graft/subnet-evm:external_consumers",
+])
+
+go_library(
+    name = "tracing",
+    srcs = ["hooks.go"],
+    importpath = "github.com/ava-labs/avalanchego/graft/subnet-evm/core/tracing",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_ava_labs_libevm//common",
+        "@com_github_ava_labs_libevm//core/types",
+        "@com_github_ava_labs_libevm//params",
+        "@com_github_chaintable_pipeline//tracer",
+    ],
+)

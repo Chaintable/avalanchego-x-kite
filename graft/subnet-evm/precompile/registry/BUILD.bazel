@@ -15,6 +15,7 @@ go_library(
         "//graft/subnet-evm/precompile/contracts/nativeminter",
         "//graft/subnet-evm/precompile/contracts/rewardmanager",
         "//graft/subnet-evm/precompile/contracts/txallowlist",
+        "//graft/subnet-evm/precompile/contracts/txdenylist",
         "//graft/subnet-evm/precompile/contracts/warp",
     ],
 )
