@@ -1311,9 +1311,12 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, parentRoot common
 		leader.GlobalManager.RLock()
 		lastPushBlock := tracer.NodeXPusher.LastPushedBlock()
 		leader.GlobalManager.RUnlock()
+		if lastPushBlock == nil {
+			log.Crit("Last pushed block unavailable; refusing to skip Kafka notification", "blockNumber", block.NumberU64())
+		}
 
 		// On a rewind, wait until the new branch reaches the last published height.
-		if lastPushBlock != nil && lastPushBlock.BlockNumber <= block.NumberU64() {
+		if lastPushBlock.BlockNumber <= block.NumberU64() {
 			_, dropBlocks, newBlocks := bc.getCommonAncestor(*lastPushBlock, ptypes.BlockContext{
 				BlockNumber: block.NumberU64(),
 				Hash:        block.Hash(),
