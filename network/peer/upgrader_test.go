@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package peer_test
@@ -92,7 +92,7 @@ func TestBlockClientsWithIncorrectRSAKeys(t *testing.T) {
 			failOnIncrementCounter := &mockPrometheusCounter{
 				Counter: c,
 				onIncrement: func() {
-					require.FailNow(t, "should not have invoked")
+					t.Fatal("should not have invoked")
 				},
 			}
 			upgrader := peer.NewTLSServerUpgrader(config, failOnIncrementCounter)

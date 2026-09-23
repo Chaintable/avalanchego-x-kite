@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package blocktest
@@ -46,8 +46,8 @@ func (s *StateSummary) Accept(ctx context.Context) (block.StateSyncMode, error) 
 	if s.AcceptF != nil {
 		return s.AcceptF(ctx)
 	}
-	if s.CantAccept && s.T != nil {
-		require.FailNow(s.T, errAccept.Error())
+	if s.T != nil {
+		require.False(s.T, s.CantAccept, errAccept)
 	}
 	return block.StateSyncSkipped, errAccept
 }

@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package blocktest
@@ -65,8 +65,8 @@ func (vm *BatchedVM) GetAncestors(
 			maxBlocksRetrivalTime,
 		)
 	}
-	if vm.CantGetAncestors && vm.T != nil {
-		require.FailNow(vm.T, errGetAncestor.Error())
+	if vm.T != nil {
+		require.False(vm.T, vm.CantGetAncestors, errGetAncestor)
 	}
 	return nil, errGetAncestor
 }
@@ -78,8 +78,8 @@ func (vm *BatchedVM) BatchedParseBlock(
 	if vm.BatchedParseBlockF != nil {
 		return vm.BatchedParseBlockF(ctx, blks)
 	}
-	if vm.CantBatchParseBlock && vm.T != nil {
-		require.FailNow(vm.T, errBatchedParseBlock.Error())
+	if vm.T != nil {
+		require.False(vm.T, vm.CantBatchParseBlock, errBatchedParseBlock)
 	}
 	return nil, errBatchedParseBlock
 }

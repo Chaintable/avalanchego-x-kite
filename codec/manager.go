@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package codec
@@ -15,8 +15,8 @@ import (
 const (
 	VersionSize = wrappers.ShortLen
 
-	// default max size, in bytes, of something being marshaled by Marshal()
-	defaultMaxSize = 256 * units.KiB
+	// DefaultMaxSize is the default maximum size of something being marshaled by Marshal()
+	DefaultMaxSize = 256 * units.KiB
 
 	// initial capacity of byte slice that values are marshaled into.
 	// Larger value --> need less memory allocations but possibly have allocated but unused memory
@@ -68,7 +68,7 @@ func NewManager(maxSize int) Manager {
 
 // NewDefaultManager returns a new codec manager.
 func NewDefaultManager() Manager {
-	return NewManager(defaultMaxSize)
+	return NewManager(DefaultMaxSize)
 }
 
 type manager struct {

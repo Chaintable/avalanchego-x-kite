@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package state
@@ -6,7 +6,7 @@ package state
 import (
 	"github.com/ava-labs/avalanchego/utils/heap"
 	"github.com/ava-labs/avalanchego/utils/iterator"
-	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
 )
 
 var (
@@ -105,7 +105,7 @@ func (it *stakerDiffIterator) advancePending() {
 
 	toRemove := *it.modifiedStaker
 	toRemove.NextTime = toRemove.EndTime
-	toRemove.Priority = txs.PendingToCurrentPriorities[toRemove.Priority]
+	toRemove.Priority = platform.PendingToCurrentPriorities[toRemove.Priority]
 	it.currentIteratorExhausted = false
 	it.currentIterator.Add(&toRemove)
 }

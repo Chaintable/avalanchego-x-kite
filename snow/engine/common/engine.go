@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package common
@@ -9,6 +9,7 @@ import (
 
 	"github.com/ava-labs/avalanchego/api/health"
 	"github.com/ava-labs/avalanchego/ids"
+	"github.com/ava-labs/avalanchego/proto/pb/p2p"
 	"github.com/ava-labs/avalanchego/snow/validators"
 	"github.com/ava-labs/avalanchego/utils/set"
 )
@@ -42,6 +43,7 @@ type Handler interface {
 	ChitsHandler
 	AppHandler
 	InternalHandler
+	SimplexHandler
 }
 
 type AllGetsServer interface {
@@ -426,4 +428,9 @@ type InternalHandler interface {
 
 	// Notify this engine of a message from the virtual machine.
 	Notify(context.Context, Message) error
+}
+
+type SimplexHandler interface {
+	// Notify this engine of a simplex message from nodeID.
+	Simplex(ctx context.Context, nodeID ids.NodeID, msg *p2p.Simplex) error
 }

@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package state
@@ -13,6 +13,7 @@ import (
 	"github.com/ava-labs/avalanchego/database"
 	"github.com/ava-labs/avalanchego/database/memdb"
 	"github.com/ava-labs/avalanchego/ids"
+	"github.com/ava-labs/avalanchego/utils/constants"
 	"github.com/ava-labs/avalanchego/utils/wrappers"
 )
 
@@ -118,57 +119,217 @@ func TestWriteValidatorMetadata(t *testing.T) {
 	require.True(subnetDB.Has(testUptimeReward.txID[:]))
 }
 
-func TestValidatorDelegateeRewards(t *testing.T) {
-	require := require.New(t)
+func TestValidatorStakingInfo(t *testing.T) {
 	state := newValidatorState()
 
-	// get non-existent delegatee reward
+	// get non-existent staking info
 	nodeID := ids.GenerateTestNodeID()
 	subnetID := ids.GenerateTestID()
-	_, err := state.GetDelegateeReward(subnetID, nodeID)
-	require.ErrorIs(err, database.ErrNotFound)
+	_, err := state.GetStakingInfo(subnetID, nodeID)
+	require.ErrorIs(t, err, database.ErrNotFound)
 
-	// set non-existent delegatee reward
-	err = state.SetDelegateeReward(subnetID, nodeID, 100000)
-	require.ErrorIs(err, database.ErrNotFound)
+	// set non-existent staking info
+	err = state.SetStakingInfo(subnetID, nodeID, StakingInfo{DelegateeReward: 100000})
+	require.ErrorIs(t, err, database.ErrNotFound)
 
 	testMetadata := &validatorMetadata{
 		PotentialDelegateeReward: 100000,
 	}
-	// load delegatee reward
+	// load staking info
 	state.LoadValidatorMetadata(nodeID, subnetID, testMetadata)
 
-	// get delegatee reward
-	delegateeReward, err := state.GetDelegateeReward(subnetID, nodeID)
-	require.NoError(err)
-	require.Equal(testMetadata.PotentialDelegateeReward, delegateeReward)
+	// get staking info
+	stakingInfo, err := state.GetStakingInfo(subnetID, nodeID)
+	require.NoError(t, err)
+	require.Equal(t, testMetadata.PotentialDelegateeReward, stakingInfo.DelegateeReward)
 
-	// set delegatee reward
-	newDelegateeReward := testMetadata.PotentialDelegateeReward + 100000
-	require.NoError(state.SetDelegateeReward(subnetID, nodeID, newDelegateeReward))
+	// set staking info
+	wantDelegateeReward := testMetadata.PotentialDelegateeReward + 100000
+	require.NoError(t, state.SetStakingInfo(subnetID, nodeID, StakingInfo{DelegateeReward: wantDelegateeReward}))
 
-	// get new delegatee reward
-	delegateeReward, err = state.GetDelegateeReward(subnetID, nodeID)
-	require.NoError(err)
-	require.Equal(newDelegateeReward, delegateeReward)
+	// get new staking info
+	stakingInfo, err = state.GetStakingInfo(subnetID, nodeID)
+	require.NoError(t, err)
+	require.Equal(t, wantDelegateeReward, stakingInfo.DelegateeReward)
 
-	// load delegatee reward changes
+	// load staking info changes
 	newTestMetadata := &validatorMetadata{
 		PotentialDelegateeReward: testMetadata.PotentialDelegateeReward + 100000,
 	}
 	state.LoadValidatorMetadata(nodeID, subnetID, newTestMetadata)
 
-	// get new delegatee reward
-	delegateeReward, err = state.GetDelegateeReward(subnetID, nodeID)
-	require.NoError(err)
-	require.Equal(newTestMetadata.PotentialDelegateeReward, delegateeReward)
+	// get new staking info
+	stakingInfo, err = state.GetStakingInfo(subnetID, nodeID)
+	require.NoError(t, err)
+	require.Equal(t, newTestMetadata.PotentialDelegateeReward, stakingInfo.DelegateeReward)
 
-	// delete delegatee reward
+	// delete staking info
 	state.DeleteValidatorMetadata(nodeID, subnetID)
 
-	// get deleted delegatee reward
+	// get deleted staking info
 	_, _, err = state.GetUptime(nodeID, subnetID)
-	require.ErrorIs(err, database.ErrNotFound)
+	require.ErrorIs(t, err, database.ErrNotFound)
+}
+
+func TestAddValidatorMetadataWrite(t *testing.T) {
+	tests := []struct {
+		name        string
+		subnetID    ids.ID
+		wantPrimary bool
+	}{
+		{
+			name:        "primary network",
+			subnetID:    constants.PrimaryNetworkID,
+			wantPrimary: true,
+		},
+		{
+			name:        "subnet",
+			subnetID:    ids.GenerateTestID(),
+			wantPrimary: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			state := newValidatorState()
+			primaryDB := memdb.New()
+			subnetDB := memdb.New()
+
+			txID := ids.GenerateTestID()
+			state.AddValidatorMetadata(ids.GenerateTestNodeID(), tt.subnetID, &validatorMetadata{
+				txID:            txID,
+				PotentialReward: 100,
+			})
+			require.NoError(state.WriteValidatorMetadata(primaryDB, subnetDB, CodecVersion1))
+
+			hasPrimary, err := primaryDB.Has(txID[:])
+			require.NoError(err)
+			hasSubnet, err := subnetDB.Has(txID[:])
+			require.NoError(err)
+
+			require.Equal(tt.wantPrimary, hasPrimary)
+			require.Equal(!tt.wantPrimary, hasSubnet)
+		})
+	}
+}
+
+func TestDeleteValidatorMetadataWrite(t *testing.T) {
+	require := require.New(t)
+	state := newValidatorState()
+	primaryDB := memdb.New()
+	subnetDB := memdb.New()
+
+	nodeID := ids.GenerateTestNodeID()
+	txID := ids.GenerateTestID()
+	state.AddValidatorMetadata(nodeID, constants.PrimaryNetworkID, &validatorMetadata{
+		txID:            txID,
+		PotentialReward: 100,
+	})
+	require.NoError(state.WriteValidatorMetadata(primaryDB, subnetDB, CodecVersion1))
+
+	state.DeleteValidatorMetadata(nodeID, constants.PrimaryNetworkID)
+	require.NoError(state.WriteValidatorMetadata(primaryDB, subnetDB, CodecVersion1))
+
+	has, err := primaryDB.Has(txID[:])
+	require.NoError(err)
+	require.False(has)
+}
+
+func TestAddThenDeleteValidatorMetadataWrite(t *testing.T) {
+	require := require.New(t)
+	state := newValidatorState()
+	primaryDB := memdb.New()
+	subnetDB := memdb.New()
+
+	nodeID := ids.GenerateTestNodeID()
+	txID := ids.GenerateTestID()
+	state.AddValidatorMetadata(nodeID, constants.PrimaryNetworkID, &validatorMetadata{
+		txID:            txID,
+		PotentialReward: 100,
+	})
+	state.DeleteValidatorMetadata(nodeID, constants.PrimaryNetworkID)
+	require.NoError(state.WriteValidatorMetadata(primaryDB, subnetDB, CodecVersion1))
+
+	has, err := primaryDB.Has(txID[:])
+	require.NoError(err)
+	require.False(has)
+}
+
+func TestDeleteThenReAddValidatorMetadataWrite(t *testing.T) {
+	require := require.New(t)
+	state := newValidatorState()
+	primaryDB := memdb.New()
+	subnetDB := memdb.New()
+
+	nodeID := ids.GenerateTestNodeID()
+	oldTxID := ids.GenerateTestID()
+	state.AddValidatorMetadata(nodeID, constants.PrimaryNetworkID, &validatorMetadata{
+		txID:            oldTxID,
+		PotentialReward: 100,
+	})
+	require.NoError(state.WriteValidatorMetadata(primaryDB, subnetDB, CodecVersion1))
+
+	state.DeleteValidatorMetadata(nodeID, constants.PrimaryNetworkID)
+	newTxID := ids.GenerateTestID()
+	state.AddValidatorMetadata(nodeID, constants.PrimaryNetworkID, &validatorMetadata{
+		txID:            newTxID,
+		PotentialReward: 200,
+	})
+	require.NoError(state.WriteValidatorMetadata(primaryDB, subnetDB, CodecVersion1))
+
+	has, err := primaryDB.Has(oldTxID[:])
+	require.NoError(err)
+	require.False(has)
+
+	has, err = primaryDB.Has(newTxID[:])
+	require.NoError(err)
+	require.True(has)
+}
+
+func TestDeleteAddDeleteAddValidatorMetadataWrite(t *testing.T) {
+	require := require.New(t)
+	state := newValidatorState()
+	primaryDB := memdb.New()
+	subnetDB := memdb.New()
+
+	nodeID := ids.GenerateTestNodeID()
+	txID1 := ids.GenerateTestID()
+	txID2 := ids.GenerateTestID()
+	txID3 := ids.GenerateTestID()
+
+	state.AddValidatorMetadata(nodeID, constants.PrimaryNetworkID, &validatorMetadata{
+		txID:            txID1,
+		PotentialReward: 100,
+	})
+	require.NoError(state.WriteValidatorMetadata(primaryDB, subnetDB, CodecVersion1))
+	has, err := primaryDB.Has(txID1[:])
+	require.NoError(err)
+	require.True(has)
+
+	state.DeleteValidatorMetadata(nodeID, constants.PrimaryNetworkID)
+	state.AddValidatorMetadata(nodeID, constants.PrimaryNetworkID, &validatorMetadata{
+		txID:            txID2,
+		PotentialReward: 200,
+	})
+	state.DeleteValidatorMetadata(nodeID, constants.PrimaryNetworkID)
+	state.AddValidatorMetadata(nodeID, constants.PrimaryNetworkID, &validatorMetadata{
+		txID:            txID3,
+		PotentialReward: 300,
+	})
+	require.NoError(state.WriteValidatorMetadata(primaryDB, subnetDB, CodecVersion1))
+
+	has, err = primaryDB.Has(txID1[:])
+	require.NoError(err)
+	require.False(has)
+
+	has, err = primaryDB.Has(txID2[:])
+	require.NoError(err)
+	require.False(has)
+
+	has, err = primaryDB.Has(txID3[:])
+	require.NoError(err)
+	require.True(has)
 }
 
 func TestParseValidatorMetadata(t *testing.T) {
@@ -250,7 +411,33 @@ func TestParseValidatorMetadata(t *testing.T) {
 			expectedErr: nil,
 		},
 		{
-			name: "invalid codec version",
+			name: "uptime + potential reward + potential delegatee reward + staker start time",
+			bytes: []byte{
+				// codec version
+				0x00, 0x01,
+				// up duration
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x5B, 0x8D, 0x80,
+				// last updated
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x0D, 0xBB, 0xA0,
+				// potential reward
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x86, 0xA0,
+				// potential delegatee reward
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4E, 0x20,
+				// staker start time
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x93, 0xE0,
+			},
+			expected: &validatorMetadata{
+				UpDuration:               6000000,
+				LastUpdated:              900000,
+				lastUpdated:              time.Unix(900000, 0),
+				PotentialReward:          100000,
+				PotentialDelegateeReward: 20000,
+				StakerStartTime:          300000,
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "codec v2 fields",
 			bytes: []byte{
 				// codec version
 				0x00, 0x02,
@@ -262,6 +449,39 @@ func TestParseValidatorMetadata(t *testing.T) {
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x86, 0xA0,
 				// potential delegatee reward
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4E, 0x20,
+				// staker start time
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x93, 0xE0,
+				// accrued rewards
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xE8,
+				// accrued delegatee rewards
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xF4,
+				// auto compound reward shares
+				0x00, 0x04, 0x93, 0xE0,
+				// next period
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x51, 0x80,
+				// staker end time (400000 = 0x61A80)
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x1A, 0x80,
+			},
+			expected: &validatorMetadata{
+				UpDuration:               6000000,
+				LastUpdated:              900000,
+				lastUpdated:              time.Unix(900000, 0),
+				PotentialReward:          100000,
+				PotentialDelegateeReward: 20000,
+				StakerStartTime:          300000,
+				AccruedValidationRewards: 1000,
+				AccruedDelegateeRewards:  500,
+				AutoCompoundRewardShares: 300000,
+				NextPeriod:               86400,
+				StakerEndTime:            400000,
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "invalid codec version",
+			bytes: []byte{
+				// codec version
+				0x00, 0x03,
 			},
 			expected:    nil,
 			expectedErr: codec.ErrUnknownVersion,

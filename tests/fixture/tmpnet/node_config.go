@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package tmpnet
@@ -54,7 +54,11 @@ func (n *Node) writeConfig() error {
 	if err != nil {
 		return stacktrace.Errorf("failed to marshal node config: %w", err)
 	}
-	if err := os.WriteFile(n.getConfigPath(), bytes, perms.ReadWrite); err != nil {
+	// Write configuration atomically to ensure tests running in parallel can create
+	// new ephemeral nodes without breaking tests trying to read network
+	// configuration. Non-atomic writes otherwise risk having a read of network
+	// configuration fail due to partially written node configuration.
+	if err := perms.WriteFile(n.getConfigPath(), bytes, perms.ReadWrite); err != nil {
 		return stacktrace.Errorf("failed to write node config: %w", err)
 	}
 	return nil

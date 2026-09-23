@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package executor
@@ -9,15 +9,14 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ava-labs/avalanchego/snow"
 	"github.com/ava-labs/avalanchego/utils/logging"
+	"github.com/ava-labs/avalanchego/vms/components/gas"
 	"github.com/ava-labs/avalanchego/vms/components/verify"
-	"github.com/ava-labs/avalanchego/vms/platformvm/block"
-	"github.com/ava-labs/avalanchego/vms/platformvm/state"
-	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
+	"github.com/ava-labs/avalanchego/vms/platformvm/state/statetest"
 	"github.com/ava-labs/avalanchego/vms/platformvm/txs/mempool"
 	"github.com/ava-labs/avalanchego/vms/secp256k1fx"
 )
@@ -25,40 +24,40 @@ import (
 func TestRejectBlock(t *testing.T) {
 	type test struct {
 		name         string
-		newBlockFunc func() (block.Block, error)
-		rejectFunc   func(*rejector, block.Block) error
+		newBlockFunc func() (platform.Block, error)
+		rejectFunc   func(*rejector, platform.Block) error
 	}
 
 	tests := []test{
 		{
 			name: "proposal block",
-			newBlockFunc: func() (block.Block, error) {
-				return block.NewBanffProposalBlock(
+			newBlockFunc: func() (platform.Block, error) {
+				return platform.NewBanffProposalBlock(
 					time.Now(),
 					ids.GenerateTestID(),
 					1,
-					&txs.Tx{
-						Unsigned: &txs.AddDelegatorTx{
+					&platform.Tx{
+						Unsigned: &platform.AddDelegatorTx{
 							// Without the line below, this function will error.
 							DelegationRewardsOwner: &secp256k1fx.OutputOwners{},
 						},
 						Creds: []verify.Verifiable{},
 					},
-					[]*txs.Tx{},
+					[]*platform.Tx{},
 				)
 			},
-			rejectFunc: func(r *rejector, b block.Block) error {
-				return r.BanffProposalBlock(b.(*block.BanffProposalBlock))
+			rejectFunc: func(r *rejector, b platform.Block) error {
+				return r.BanffProposalBlock(b.(*platform.BanffProposalBlock))
 			},
 		},
 		{
 			name: "atomic block",
-			newBlockFunc: func() (block.Block, error) {
-				return block.NewApricotAtomicBlock(
+			newBlockFunc: func() (platform.Block, error) {
+				return platform.NewApricotAtomicBlock(
 					ids.GenerateTestID(),
 					1,
-					&txs.Tx{
-						Unsigned: &txs.AddDelegatorTx{
+					&platform.Tx{
+						Unsigned: &platform.AddDelegatorTx{
 							// Without the line below, this function will error.
 							DelegationRewardsOwner: &secp256k1fx.OutputOwners{},
 						},
@@ -66,20 +65,20 @@ func TestRejectBlock(t *testing.T) {
 					},
 				)
 			},
-			rejectFunc: func(r *rejector, b block.Block) error {
-				return r.ApricotAtomicBlock(b.(*block.ApricotAtomicBlock))
+			rejectFunc: func(r *rejector, b platform.Block) error {
+				return r.ApricotAtomicBlock(b.(*platform.ApricotAtomicBlock))
 			},
 		},
 		{
 			name: "standard block",
-			newBlockFunc: func() (block.Block, error) {
-				return block.NewBanffStandardBlock(
+			newBlockFunc: func() (platform.Block, error) {
+				return platform.NewBanffStandardBlock(
 					time.Now(),
 					ids.GenerateTestID(),
 					1,
-					[]*txs.Tx{
+					[]*platform.Tx{
 						{
-							Unsigned: &txs.AddDelegatorTx{
+							Unsigned: &platform.AddDelegatorTx{
 								// Without the line below, this function will error.
 								DelegationRewardsOwner: &secp256k1fx.OutputOwners{},
 							},
@@ -88,26 +87,26 @@ func TestRejectBlock(t *testing.T) {
 					},
 				)
 			},
-			rejectFunc: func(r *rejector, b block.Block) error {
-				return r.BanffStandardBlock(b.(*block.BanffStandardBlock))
+			rejectFunc: func(r *rejector, b platform.Block) error {
+				return r.BanffStandardBlock(b.(*platform.BanffStandardBlock))
 			},
 		},
 		{
 			name: "commit",
-			newBlockFunc: func() (block.Block, error) {
-				return block.NewBanffCommitBlock(time.Now(), ids.GenerateTestID() /*parent*/, 1 /*height*/)
+			newBlockFunc: func() (platform.Block, error) {
+				return platform.NewBanffCommitBlock(time.Now(), ids.GenerateTestID() /*parent*/, 1 /*height*/)
 			},
-			rejectFunc: func(r *rejector, blk block.Block) error {
-				return r.BanffCommitBlock(blk.(*block.BanffCommitBlock))
+			rejectFunc: func(r *rejector, blk platform.Block) error {
+				return r.BanffCommitBlock(blk.(*platform.BanffCommitBlock))
 			},
 		},
 		{
 			name: "abort",
-			newBlockFunc: func() (block.Block, error) {
-				return block.NewBanffAbortBlock(time.Now(), ids.GenerateTestID() /*parent*/, 1 /*height*/)
+			newBlockFunc: func() (platform.Block, error) {
+				return platform.NewBanffAbortBlock(time.Now(), ids.GenerateTestID() /*parent*/, 1 /*height*/)
 			},
-			rejectFunc: func(r *rejector, blk block.Block) error {
-				return r.BanffAbortBlock(blk.(*block.BanffAbortBlock))
+			rejectFunc: func(r *rejector, blk platform.Block) error {
+				return r.BanffAbortBlock(blk.(*platform.BanffAbortBlock))
 			},
 		},
 	}
@@ -115,14 +114,19 @@ func TestRejectBlock(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require := require.New(t)
-			ctrl := gomock.NewController(t)
 
 			blk, err := tt.newBlockFunc()
 			require.NoError(err)
 
-			mempool, err := mempool.New("", prometheus.NewRegistry())
+			mempool, err := mempool.New(
+				"",
+				gas.Dimensions{},
+				1_000_000,
+				ids.ID{},
+				prometheus.NewRegistry(),
+			)
 			require.NoError(err)
-			state := state.NewMockState(ctrl)
+			state := statetest.New(t, statetest.Config{})
 			blkIDToState := map[ids.ID]*blockState{
 				blk.Parent(): nil,
 				blk.ID():     nil,

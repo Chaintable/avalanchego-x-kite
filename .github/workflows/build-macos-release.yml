@@ -17,7 +17,10 @@ on:
 jobs:
   # This workflow contains a single job called "build"
   build-mac:
-    # The type of runner that the job will run on
+    # Build release artifacts on the oldest macOS version still receiving Apple
+    # security updates to maximize the chance that shipped binaries remain usable
+    # on older supported macOS versions. CI validation can track newer macOS
+    # releases independently.
     runs-on: macos-14
     permissions:
       id-token: write
@@ -26,12 +29,16 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-go-for-project
       - run: go version
 
       # Runs a single command using the runners shell
       - name: Build the avalanchego binary
+        run: ./scripts/run_task.sh build
+
+      - name: Build subnet-evm plugin
+        working-directory: ./graft/subnet-evm
         run: ./scripts/run_task.sh build
 
       - name: Try to get tag from git
@@ -48,8 +55,13 @@ jobs:
           echo "TAG=${{ github.event.inputs.tag }}" >> "$GITHUB_ENV"
         shell: bash
 
-      - name: Create zip file
+      - name: Create avalanchego zip file
         run: 7z a "avalanchego-macos-${TAG}.zip" build/avalanchego
+        env:
+          TAG: ${{ env.TAG }}
+
+      - name: Create subnet-evm zip file
+        run: 7z a "subnet-evm-macos-${TAG}.zip" build/subnet-evm
         env:
           TAG: ${{ env.TAG }}
 
@@ -59,22 +71,33 @@ jobs:
           sudo installer -pkg AWSCLIV2.pkg -target /
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_SA_ROLE_ARN }}
           role-session-name: githubrolesession
           aws-region: us-east-1
 
-      - name: Upload file to S3
+      - name: Upload avalanchego to S3
         run: aws s3 cp avalanchego-macos-${{ env.TAG }}.zip "s3://${BUCKET}/macos/"
         env:
           BUCKET: ${{ secrets.BUCKET }}
 
-      - name: Save as Github artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload subnet-evm to S3
+        run: aws s3 cp subnet-evm-macos-${{ env.TAG }}.zip "s3://${BUCKET}/macos/"
+        env:
+          BUCKET: ${{ secrets.BUCKET }}
+
+      - name: Save avalanchego as Github artifact
+        uses: actions/upload-artifact@v6
         with:
-          name: build
+          name: avalanchego-macos
           path: avalanchego-macos-${{ env.TAG }}.zip
+
+      - name: Save subnet-evm as Github artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: subnet-evm-macos
+          path: subnet-evm-macos-${{ env.TAG }}.zip
 
       - name: Cleanup
         run: |

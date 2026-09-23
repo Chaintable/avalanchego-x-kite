@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package bootstrap
@@ -97,11 +97,11 @@ func newConfig(t *testing.T) (Config, ids.NodeID, *enginetest.Sender, *vertextes
 		"",
 		prometheus.NewRegistry(),
 		nil,
-		version.CurrentApp,
+		version.Current,
 	)
 	require.NoError(err)
 
-	p2pTracker.Connected(peer, version.CurrentApp)
+	p2pTracker.Connected(peer, version.Current)
 
 	return Config{
 		AllGetsServer:                  avaGetHandler,
@@ -187,7 +187,7 @@ func TestBootstrapperSingleFrontier(t *testing.T) {
 		case vtxID2:
 			return vtx2, nil
 		default:
-			require.FailNow(errUnknownVertex.Error())
+			t.Fatal(errUnknownVertex)
 			return nil, errUnknownVertex
 		}
 	}
@@ -201,7 +201,7 @@ func TestBootstrapperSingleFrontier(t *testing.T) {
 		case bytes.Equal(vtxBytes, vtxBytes2):
 			return vtx2, nil
 		default:
-			require.FailNow(errParsedUnknownVertex.Error())
+			t.Fatal(errParsedUnknownVertex)
 			return nil, errParsedUnknownVertex
 		}
 	}
@@ -292,7 +292,7 @@ func TestBootstrapperByzantineResponses(t *testing.T) {
 		case vtxID0:
 			return nil, errUnknownVertex
 		default:
-			require.FailNow(errUnknownVertex.Error())
+			t.Fatal(errUnknownVertex)
 			return nil, errUnknownVertex
 		}
 	}
@@ -319,7 +319,7 @@ func TestBootstrapperByzantineResponses(t *testing.T) {
 			vtx2.StatusV = choices.Processing
 			return vtx2, nil
 		default:
-			require.FailNow(errParsedUnknownVertex.Error())
+			t.Fatal(errParsedUnknownVertex)
 			return nil, errParsedUnknownVertex
 		}
 	}
@@ -340,7 +340,7 @@ func TestBootstrapperByzantineResponses(t *testing.T) {
 		case vtxID0:
 			return vtx0, nil
 		default:
-			require.FailNow(errUnknownVertex.Error())
+			t.Fatal(errUnknownVertex)
 			return nil, errUnknownVertex
 		}
 	}
@@ -459,7 +459,7 @@ func TestBootstrapperTxDependencies(t *testing.T) {
 		case bytes.Equal(vtxBytes, vtxBytes0):
 			return vtx0, nil
 		default:
-			require.FailNow(errParsedUnknownVertex.Error())
+			t.Fatal(errParsedUnknownVertex)
 			return nil, errParsedUnknownVertex
 		}
 	}
@@ -470,7 +470,7 @@ func TestBootstrapperTxDependencies(t *testing.T) {
 		case vtxID0:
 			return nil, errUnknownVertex
 		default:
-			require.FailNow(errUnknownVertex.Error())
+			t.Fatal(errUnknownVertex)
 			return nil, errUnknownVertex
 		}
 	}
@@ -494,7 +494,7 @@ func TestBootstrapperTxDependencies(t *testing.T) {
 			vtx0.StatusV = choices.Processing
 			return vtx0, nil
 		default:
-			require.FailNow(errParsedUnknownVertex.Error())
+			t.Fatal(errParsedUnknownVertex)
 			return nil, errParsedUnknownVertex
 		}
 	}
@@ -585,7 +585,7 @@ func TestBootstrapperIncompleteAncestors(t *testing.T) {
 		case vtxID2:
 			return vtx2, nil
 		default:
-			require.FailNow(errUnknownVertex.Error())
+			t.Fatal(errUnknownVertex)
 			return nil, errUnknownVertex
 		}
 	}
@@ -600,7 +600,7 @@ func TestBootstrapperIncompleteAncestors(t *testing.T) {
 		case bytes.Equal(vtxBytes, vtxBytes2):
 			return vtx2, nil
 		default:
-			require.FailNow(errParsedUnknownVertex.Error())
+			t.Fatal(errParsedUnknownVertex)
 			return nil, errParsedUnknownVertex
 		}
 	}

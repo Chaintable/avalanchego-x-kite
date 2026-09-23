@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package admin
@@ -52,7 +52,7 @@ type Config struct {
 	ChainManager chains.Manager
 	HTTPServer   server.PathAdderWithReadLock
 	VMRegistry   registry.VMRegistry
-	VMManager    vms.Manager
+	VMManager    *vms.Manager
 }
 
 // Admin is the API service for node admin management

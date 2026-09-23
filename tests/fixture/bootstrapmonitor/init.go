@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package bootstrapmonitor
@@ -16,13 +16,24 @@ import (
 
 	"github.com/ava-labs/avalanchego/utils/logging"
 	"github.com/ava-labs/avalanchego/utils/perms"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
 	initTimeout = 2 * time.Minute
 
+	// How long to wait for the pod to be deleted after prompting its replacement
+	reapTimeout = 5 * time.Minute
+
 	BootstrapStartingMessage = "Starting bootstrap test"
 	BootstrapResumingMessage = "Resuming bootstrap test"
+	PodDeletingMessage       = "Deleting pod to trigger recreation with the digest-pinned image"
+)
+
+var (
+	errImageNotDigestPinned = errors.New("image is neither digest-pinned nor tagged \":master\"")
+	errPodNotTerminated     = errors.New("pod was not terminated after requesting its deletion")
 )
 
 func NodeDataDir(path string) string {
@@ -49,20 +60,39 @@ func InitBootstrapTest(log logging.Logger, namespace string, podName string, nod
 	}
 	log.Info("Retrieved bootstrap test config", zap.Reflect("testConfig", testConfig))
 
-	// If the image uses the latest tag, determine the latest image id and set the container image to that
-	if strings.HasSuffix(testConfig.Image, ":latest") {
+	// If the image uses the master tag, determine the master image id and set the container image to that
+	if strings.HasSuffix(testConfig.Image, ":master") {
 		log.Info("Determining image id for image", zap.String("image", testConfig.Image))
-		latestImageDetails, err := getLatestImageDetails(ctx, log, clientset, namespace, testConfig.Image, nodeContainerName)
+		masterImageDetails, err := getMasterImageDetails(ctx, log, clientset, namespace, testConfig.Image, nodeContainerName)
 		if err != nil {
-			return fmt.Errorf("failed to get latest image details: %w", err)
+			return fmt.Errorf("failed to get master image details: %w", err)
 		}
 		log.Info("Updating owning statefulset with image details",
-			zap.String("image", latestImageDetails.Image),
-			zap.Reflect("versions", latestImageDetails.Versions),
+			zap.String("image", masterImageDetails.Image),
+			zap.Reflect("versions", masterImageDetails.Versions),
 		)
-		if err := setImageDetails(ctx, log, clientset, namespace, podName, latestImageDetails); err != nil {
+		if err := setImageDetails(ctx, log, clientset, namespace, podName, masterImageDetails); err != nil {
 			return fmt.Errorf("failed to set container image: %w", err)
 		}
+		// The statefulset controller won't replace a pod that was never ready
+		// (init blocks readiness), so self-delete, and let the digest-pinned
+		// replacement make the start/resume decision.
+		log.Info(PodDeletingMessage,
+			zap.String("image", masterImageDetails.Image),
+			zap.String("namespace", namespace),
+			zap.String("pod", podName),
+			zap.Duration("terminationTimeout", reapTimeout),
+		)
+		if err := clientset.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{}); err != nil {
+			return fmt.Errorf("deleting pod %s.%s: %w", namespace, podName, err)
+		}
+		time.Sleep(reapTimeout)
+		return errPodNotTerminated
+	}
+
+	// Only a digest-pinned image unambiguously identifies a build
+	if !isDigestPinned(testConfig.Image) {
+		return fmt.Errorf("%w: %q", errImageNotDigestPinned, testConfig.Image)
 	}
 
 	// A bootstrap is being resumed if a version file exists and the image name it contains matches the container
@@ -96,14 +126,14 @@ func InitBootstrapTest(log logging.Logger, namespace string, podName string, nod
 		return fmt.Errorf("failed to remove contents of node directory: %w", err)
 	}
 
-	log.Info("Writing test details to file",
-		zap.Reflect("testDetails", testDetails),
-		zap.String("path", testDetailsPath),
-	)
 	testDetails = bootstrapTestDetails{
 		Image:     testConfig.Image,
 		StartTime: time.Now(),
 	}
+	log.Info("Writing test details to file",
+		zap.Reflect("testDetails", testDetails),
+		zap.String("path", testDetailsPath),
+	)
 	testDetailsBytes, err := json.Marshal(testDetails)
 	if err != nil {
 		return fmt.Errorf("failed to marshal test details: %w", err)

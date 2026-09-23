@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package builder
@@ -32,26 +32,26 @@ import (
 	"github.com/ava-labs/avalanchego/utils/logging"
 	"github.com/ava-labs/avalanchego/utils/timer/mockable"
 	"github.com/ava-labs/avalanchego/utils/units"
+	"github.com/ava-labs/avalanchego/vms/components/gas"
 	"github.com/ava-labs/avalanchego/vms/platformvm/config"
 	"github.com/ava-labs/avalanchego/vms/platformvm/fx"
 	"github.com/ava-labs/avalanchego/vms/platformvm/genesis/genesistest"
 	"github.com/ava-labs/avalanchego/vms/platformvm/metrics"
 	"github.com/ava-labs/avalanchego/vms/platformvm/network"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
 	"github.com/ava-labs/avalanchego/vms/platformvm/reward"
 	"github.com/ava-labs/avalanchego/vms/platformvm/state"
 	"github.com/ava-labs/avalanchego/vms/platformvm/state/statetest"
 	"github.com/ava-labs/avalanchego/vms/platformvm/status"
-	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
 	"github.com/ava-labs/avalanchego/vms/platformvm/txs/mempool"
 	"github.com/ava-labs/avalanchego/vms/platformvm/txs/txstest"
 	"github.com/ava-labs/avalanchego/vms/platformvm/utxo"
-	"github.com/ava-labs/avalanchego/vms/platformvm/validators/validatorstest"
 	"github.com/ava-labs/avalanchego/vms/secp256k1fx"
 	"github.com/ava-labs/avalanchego/wallet/chain/p/wallet"
 
 	blockexecutor "github.com/ava-labs/avalanchego/vms/platformvm/block/executor"
 	txexecutor "github.com/ava-labs/avalanchego/vms/platformvm/txs/executor"
-	txmempool "github.com/ava-labs/avalanchego/vms/txs/mempool"
+	platformvalidators "github.com/ava-labs/avalanchego/vms/platformvm/validators"
 )
 
 const (
@@ -59,7 +59,7 @@ const (
 	defaultMaxStakingDuration = 365 * 24 * time.Hour
 )
 
-var testSubnet1 *txs.Tx
+var testSubnet1 *platform.Tx
 
 type mutableSharedMemory struct {
 	atomic.SharedMemory
@@ -68,7 +68,7 @@ type mutableSharedMemory struct {
 type environment struct {
 	Builder
 	blkManager blockexecutor.Manager
-	mempool    txmempool.Mempool[*txs.Tx]
+	mempool    *mempool.Mempool
 	network    *network.Network
 	sender     *enginetest.Sender
 
@@ -79,7 +79,7 @@ type environment struct {
 	ctx            *snow.Context
 	msm            *mutableSharedMemory
 	fx             fx.Fx
-	state          state.State
+	state          *state.State
 	uptimes        uptime.Manager
 	utxosVerifier  utxo.Verifier
 	backend        txexecutor.Backend
@@ -110,13 +110,13 @@ func newEnvironment(t *testing.T, f upgradetest.Fork) *environment { //nolint:un
 
 	res.fx = defaultFx(t, res.clk, res.ctx.Log, res.isBootstrapped.Get())
 
-	rewardsCalc := reward.NewCalculator(res.config.RewardConfig)
 	res.state = statetest.New(t, statetest.Config{
-		DB:         res.baseDB,
-		Genesis:    genesistest.NewBytes(t, genesistest.Config{}),
-		Validators: res.config.Validators,
-		Context:    res.ctx,
-		Rewards:    rewardsCalc,
+		DB:           res.baseDB,
+		Genesis:      genesistest.NewBytes(t, genesistest.Config{}),
+		Validators:   res.config.Validators,
+		Upgrades:     res.config.UpgradeConfig,
+		Context:      res.ctx,
+		RewardConfig: res.config.RewardConfig,
 	})
 
 	res.uptimes = uptime.NewManager(res.state, res.clk)
@@ -131,7 +131,6 @@ func newEnvironment(t *testing.T, f upgradetest.Fork) *environment { //nolint:un
 		Fx:           res.fx,
 		FlowChecker:  res.utxosVerifier,
 		Uptimes:      res.uptimes,
-		Rewards:      rewardsCalc,
 	}
 
 	registerer := prometheus.NewRegistry()
@@ -143,15 +142,23 @@ func newEnvironment(t *testing.T, f upgradetest.Fork) *environment { //nolint:un
 	metrics, err := metrics.New(registerer)
 	require.NoError(err)
 
-	res.mempool, err = mempool.New("mempool", registerer)
+	res.mempool, err = mempool.New(
+		"mempool",
+		res.config.DynamicFeeConfig.Weights,
+		1_000_000,
+		res.ctx.AVAXAssetID,
+		registerer,
+	)
 	require.NoError(err)
+
+	manager := platformvalidators.NewManager(*res.config, res.state, metrics, res.clk)
 
 	res.blkManager = blockexecutor.NewManager(
 		res.mempool,
 		metrics,
 		res.state,
 		&res.backend,
-		validatorstest.Manager,
+		manager,
 	)
 
 	txVerifier := network.NewLockedTxVerifier(&res.ctx.Lock, res.blkManager)
@@ -180,6 +187,10 @@ func newEnvironment(t *testing.T, f upgradetest.Fork) *environment { //nolint:un
 
 	res.blkManager.SetPreference(genesisID, nil)
 	addSubnet(t, res)
+
+	// Dynamic fees require us to build blocks with a non-zero difference in time
+	// from the last block
+	res.clk.Set(res.clk.Time().Add(time.Second))
 
 	t.Cleanup(func() {
 		res.ctx.Lock.Lock()
@@ -242,7 +253,7 @@ func addSubnet(t *testing.T, env *environment) {
 	require.NoError(err)
 
 	genesisID := env.state.GetLastAccepted()
-	stateDiff, err := state.NewDiff(genesisID, env.blkManager)
+	stateDiff, err := state.NewDiff(genesisID, env.blkManager, state.StakerAdditionAfterDeletionForbidden)
 	require.NoError(err)
 
 	feeCalculator := state.PickFeeCalculator(env.config, stateDiff)
@@ -272,11 +283,19 @@ func defaultConfig(f upgradetest.Fork) *config.Internal {
 		Chains:                 chains.TestManager,
 		UptimeLockedCalculator: uptime.NewLockedCalculator(),
 		Validators:             validators.NewManager(),
-		MinValidatorStake:      5 * units.MilliAvax,
-		MaxValidatorStake:      500 * units.MilliAvax,
-		MinDelegatorStake:      1 * units.MilliAvax,
-		MinStakeDuration:       defaultMinStakingDuration,
-		MaxStakeDuration:       defaultMaxStakingDuration,
+		DynamicFeeConfig: gas.Config{
+			Weights:                  gas.Dimensions{1, 1, 1, 1},
+			MaxCapacity:              1_000_000,
+			MaxPerSecond:             1_000_000,
+			TargetPerSecond:          100,
+			MinPrice:                 1,
+			ExcessConversionConstant: 1,
+		},
+		MinValidatorStake: 5 * units.MilliAvax,
+		MaxValidatorStake: 500 * units.MilliAvax,
+		MinDelegatorStake: 1 * units.MilliAvax,
+		MinStakeDuration:  defaultMinStakingDuration,
+		MaxStakeDuration:  defaultMaxStakingDuration,
 		RewardConfig: reward.Config{
 			MaxConsumptionRate: .12 * reward.PercentDenominator,
 			MinConsumptionRate: .10 * reward.PercentDenominator,

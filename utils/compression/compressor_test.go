@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package compression
@@ -177,7 +177,7 @@ func fuzzHelper(f *testing.F, compressionType Type) {
 		compressor, err = NewZstdCompressor(maxMessageSize)
 		require.NoError(f, err)
 	default:
-		require.FailNow(f, "Unknown compression type")
+		f.Fatal("Unknown compression type")
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {

@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package p2p
@@ -35,7 +35,7 @@ var (
 // ConnectionHandler handles peer connection events
 type ConnectionHandler interface {
 	// Connected is called when we connect to nodeID
-	Connected(nodeID ids.NodeID)
+	Connected(nodeID ids.NodeID, ver *version.Application)
 	// Disconnected is called when we disconnect from nodeID
 	Disconnected(nodeID ids.NodeID)
 }
@@ -107,9 +107,9 @@ func (n *Network) AppGossip(ctx context.Context, nodeID ids.NodeID, msg []byte) 
 	return n.router.AppGossip(ctx, nodeID, msg)
 }
 
-func (n *Network) Connected(_ context.Context, nodeID ids.NodeID, _ *version.Application) error {
+func (n *Network) Connected(_ context.Context, nodeID ids.NodeID, ver *version.Application) error {
 	for _, c := range n.connectionHandlers {
-		c.Connected(nodeID)
+		c.Connected(nodeID, ver)
 	}
 
 	return nil
@@ -146,7 +146,7 @@ type Peers struct {
 	set  set.SampleableSet[ids.NodeID]
 }
 
-func (p *Peers) Connected(nodeID ids.NodeID) {
+func (p *Peers) Connected(nodeID ids.NodeID, _ *version.Application) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
@@ -165,6 +165,13 @@ func (p *Peers) Has(nodeID ids.NodeID) bool {
 	defer p.lock.RUnlock()
 
 	return p.set.Contains(nodeID)
+}
+
+func (p *Peers) Len() int {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+
+	return p.set.Len()
 }
 
 // Sample returns a pseudo-random sample of up to limit Peers

@@ -1,72 +1,46 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package network
 
 import (
-	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
 	"github.com/ava-labs/avalanchego/ids"
-	"github.com/ava-labs/avalanchego/network/p2p"
 	"github.com/ava-labs/avalanchego/network/p2p/gossip"
-	"github.com/ava-labs/avalanchego/snow/engine/common"
+	"github.com/ava-labs/avalanchego/utils/bloom"
 	"github.com/ava-labs/avalanchego/utils/logging"
-	"github.com/ava-labs/avalanchego/vms/platformvm/txs"
-	"github.com/ava-labs/avalanchego/vms/txs/mempool"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
+	"github.com/ava-labs/avalanchego/vms/platformvm/txs/mempool"
+
+	txmempool "github.com/ava-labs/avalanchego/vms/txs/mempool"
 )
 
 var (
-	_ p2p.Handler                = (*txGossipHandler)(nil)
-	_ gossip.Marshaller[*txs.Tx] = (*txMarshaller)(nil)
-	_ gossip.Gossipable          = (*txs.Tx)(nil)
+	_ gossip.Marshaller[*platform.Tx] = (*txMarshaller)(nil)
+	_ gossip.Gossipable               = (*platform.Tx)(nil)
 )
 
 // bloomChurnMultiplier is the number used to multiply the size of the mempool
 // to determine how large of a bloom filter to create.
 const bloomChurnMultiplier = 3
 
-// txGossipHandler is the handler called when serving gossip messages
-type txGossipHandler struct {
-	p2p.NoOpHandler
-	appGossipHandler  p2p.Handler
-	appRequestHandler p2p.Handler
-}
-
-func (t txGossipHandler) AppGossip(
-	ctx context.Context,
-	nodeID ids.NodeID,
-	gossipBytes []byte,
-) {
-	t.appGossipHandler.AppGossip(ctx, nodeID, gossipBytes)
-}
-
-func (t txGossipHandler) AppRequest(
-	ctx context.Context,
-	nodeID ids.NodeID,
-	deadline time.Time,
-	requestBytes []byte,
-) ([]byte, *common.AppError) {
-	return t.appRequestHandler.AppRequest(ctx, nodeID, deadline, requestBytes)
-}
-
 type txMarshaller struct{}
 
-func (txMarshaller) MarshalGossip(tx *txs.Tx) ([]byte, error) {
+func (txMarshaller) MarshalGossip(tx *platform.Tx) ([]byte, error) {
 	return tx.Bytes(), nil
 }
 
-func (txMarshaller) UnmarshalGossip(bytes []byte) (*txs.Tx, error) {
-	return txs.Parse(txs.Codec, bytes)
+func (txMarshaller) UnmarshalGossip(bytes []byte) (*platform.Tx, error) {
+	return platform.ParseTx(platform.Codec, bytes)
 }
 
 func newGossipMempool(
-	mempool mempool.Mempool[*txs.Tx],
+	mempool *mempool.Mempool,
 	registerer prometheus.Registerer,
 	log logging.Logger,
 	txVerifier TxVerifier,
@@ -84,7 +58,7 @@ func newGossipMempool(
 }
 
 type gossipMempool struct {
-	mempool.Mempool[*txs.Tx]
+	*mempool.Mempool
 	log        logging.Logger
 	txVerifier TxVerifier
 
@@ -92,10 +66,10 @@ type gossipMempool struct {
 	bloom *gossip.BloomFilter
 }
 
-func (g *gossipMempool) Add(tx *txs.Tx) error {
+func (g *gossipMempool) Add(tx *platform.Tx) error {
 	txID := tx.ID()
 	if _, ok := g.Mempool.Get(txID); ok {
-		return fmt.Errorf("tx %s dropped: %w", txID, mempool.ErrDuplicateTx)
+		return fmt.Errorf("tx %s dropped: %w", txID, txmempool.ErrDuplicateTx)
 	}
 
 	if reason := g.Mempool.GetDropReason(txID); reason != nil {
@@ -125,14 +99,17 @@ func (g *gossipMempool) Add(tx *txs.Tx) error {
 	defer g.lock.Unlock()
 
 	g.bloom.Add(tx)
-	reset, err := gossip.ResetBloomFilterIfNeeded(g.bloom, g.Mempool.Len()*bloomChurnMultiplier)
+	reset, err := gossip.ResetBloomFilterIfNeeded(
+		g.bloom,
+		g.Mempool.Len()*bloomChurnMultiplier,
+	)
 	if err != nil {
 		return err
 	}
 
 	if reset {
 		g.log.Debug("resetting bloom filter")
-		g.Mempool.Iterate(func(tx *txs.Tx) bool {
+		g.Mempool.Iterate(func(tx *platform.Tx) bool {
 			g.bloom.Add(tx)
 			return true
 		})
@@ -145,9 +122,9 @@ func (g *gossipMempool) Has(txID ids.ID) bool {
 	return ok
 }
 
-func (g *gossipMempool) GetFilter() (bloom []byte, salt []byte) {
+func (g *gossipMempool) BloomFilter() (*bloom.Filter, ids.ID) {
 	g.lock.RLock()
 	defer g.lock.RUnlock()
 
-	return g.bloom.Marshal()
+	return g.bloom.BloomFilter()
 }

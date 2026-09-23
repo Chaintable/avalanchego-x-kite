@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package set
@@ -83,6 +83,48 @@ func TestOf(t *testing.T) {
 			for _, expected := range tt.expected {
 				require.True(s.Contains(expected))
 			}
+		})
+	}
+}
+
+func TestUnionOf(t *testing.T) {
+	tests := []struct {
+		name     string
+		elements []Set[int]
+		expected Set[int]
+	}{
+		{
+			name:     "nil",
+			elements: nil,
+			expected: nil,
+		},
+		{
+			name: "empty",
+			elements: []Set[int]{
+				{},
+			},
+			expected: Set[int]{},
+		},
+		{
+			name: "single_set",
+			elements: []Set[int]{
+				Of(1, 2, 3),
+			},
+			expected: Of(1, 2, 3),
+		},
+		{
+			name: "multiple_sets",
+			elements: []Set[int]{
+				Of(1, 2),
+				Of(2, 3),
+			},
+			expected: Of(1, 2, 3),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := UnionOf(tt.elements...)
+			require.Equalf(t, tt.expected, s, "UnionOf(%v)", tt.elements)
 		})
 	}
 }

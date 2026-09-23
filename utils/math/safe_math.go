@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package math
@@ -12,12 +12,6 @@ import (
 var (
 	ErrOverflow  = errors.New("overflow")
 	ErrUnderflow = errors.New("underflow")
-
-	// Deprecated: Add64 is deprecated. Use Add[uint64] instead.
-	Add64 = Add[uint64]
-
-	// Deprecated: Mul64 is deprecated. Use Mul[uint64] instead.
-	Mul64 = Mul[uint64]
 )
 
 // MaxUint returns the maximum value of an unsigned integer of type T.

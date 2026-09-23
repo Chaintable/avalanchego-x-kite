@@ -1,0 +1,17 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "executormock",
+    srcs = ["manager.go"],
+    importpath = "github.com/ava-labs/avalanchego/vms/platformvm/block/executor/executormock",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//ids",
+        "//snow/consensus/snowman",
+        "//snow/engine/snowman/block",
+        "//utils/set",
+        "//vms/platformvm/platform",
+        "//vms/platformvm/state",
+        "@org_uber_go_mock//gomock",
+    ],
+)

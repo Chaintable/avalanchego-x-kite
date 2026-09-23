@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package common
@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/ava-labs/avalanchego/ids"
+	"github.com/ava-labs/avalanchego/proto/pb/p2p"
 	"github.com/ava-labs/avalanchego/trace"
 	"github.com/ava-labs/avalanchego/utils/set"
 	"github.com/ava-labs/avalanchego/version"
@@ -366,4 +367,13 @@ func (e *tracedEngine) HealthCheck(ctx context.Context) (interface{}, error) {
 	defer span.End()
 
 	return e.engine.HealthCheck(ctx)
+}
+
+func (e *tracedEngine) Simplex(ctx context.Context, nodeID ids.NodeID, msg *p2p.Simplex) error {
+	ctx, span := e.tracer.Start(ctx, "tracedEngine.Simplex", oteltrace.WithAttributes(
+		attribute.Stringer("nodeID", nodeID),
+	))
+	defer span.End()
+
+	return e.engine.Simplex(ctx, nodeID, msg)
 }

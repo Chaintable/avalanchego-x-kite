@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package proposervm
@@ -312,7 +312,7 @@ func TestBlockVerify_BlocksBuiltOnPreForkGenesis(t *testing.T) {
 		case coreBlk.ID():
 			return coreBlk, nil
 		default:
-			require.FailNow("attempt to get unknown block")
+			t.Fatal("attempt to get unknown block")
 			return nil, nil
 		}
 	}
@@ -337,7 +337,7 @@ func TestBlockVerify_BlocksBuiltOnPreForkGenesis(t *testing.T) {
 		case secondCoreBlk.ID():
 			return secondCoreBlk, nil
 		default:
-			require.FailNow("attempt to get unknown block")
+			t.Fatal("attempt to get unknown block")
 			return nil, nil
 		}
 	}

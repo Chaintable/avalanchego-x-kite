@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package state
@@ -53,7 +53,7 @@ func TestParseDelegatorMetadata(t *testing.T) {
 			name: "invalid codec version",
 			bytes: []byte{
 				// codec version
-				0x00, 0x02,
+				0x00, 0x03,
 				// potential reward
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7b,
 				// staker start time

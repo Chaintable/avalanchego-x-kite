@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package executor
@@ -7,7 +7,7 @@ import (
 	"context"
 
 	"github.com/ava-labs/avalanchego/snow/validators"
-	"github.com/ava-labs/avalanchego/vms/platformvm/block"
+	"github.com/ava-labs/avalanchego/vms/platformvm/platform"
 	"github.com/ava-labs/avalanchego/vms/platformvm/txs/executor"
 )
 
@@ -18,7 +18,7 @@ func VerifyWarpMessages(
 	networkID uint32,
 	validatorState validators.State,
 	pChainHeight uint64,
-	b block.Block,
+	b platform.Block,
 ) error {
 	for _, tx := range b.Txs() {
 		err := executor.VerifyWarpMessages(

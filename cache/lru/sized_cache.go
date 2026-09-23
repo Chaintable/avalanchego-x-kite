@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package lru
@@ -91,9 +91,7 @@ func (c *SizedCache[K, V]) put(key K, value V) {
 		return
 	}
 
-	if oldElement, ok := c.elements.Get(key); ok {
-		c.currentSize -= oldElement.size
-	}
+	c.evict(key)
 
 	// Remove elements until the size of elements in the cache <= [c.maxSize].
 	for c.currentSize > c.maxSize-newEntrySize {

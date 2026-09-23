@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package vertextest
@@ -40,8 +40,8 @@ func (s *Storage) GetVtx(ctx context.Context, vtxID ids.ID) (avalanche.Vertex, e
 	if s.GetVtxF != nil {
 		return s.GetVtxF(ctx, vtxID)
 	}
-	if s.CantGetVtx && s.T != nil {
-		require.FailNow(s.T, errGet.Error())
+	if s.T != nil {
+		require.False(s.T, s.CantGetVtx, errGet)
 	}
 	return nil, errGet
 }
@@ -50,8 +50,8 @@ func (s *Storage) Edge(ctx context.Context) []ids.ID {
 	if s.EdgeF != nil {
 		return s.EdgeF(ctx)
 	}
-	if s.CantEdge && s.T != nil {
-		require.FailNow(s.T, errEdge.Error())
+	if s.T != nil {
+		require.False(s.T, s.CantEdge, errEdge)
 	}
 	return nil
 }
@@ -60,8 +60,8 @@ func (s *Storage) StopVertexAccepted(ctx context.Context) (bool, error) {
 	if s.StopVertexAcceptedF != nil {
 		return s.StopVertexAcceptedF(ctx)
 	}
-	if s.CantStopVertexAccepted && s.T != nil {
-		require.FailNow(s.T, errStopVertexAccepted.Error())
+	if s.T != nil {
+		require.False(s.T, s.CantStopVertexAccepted, errStopVertexAccepted)
 	}
 	return false, nil
 }

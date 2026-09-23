@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025, Ava Labs, Inc. All rights reserved.
+// Copyright (C) 2019, Ava Labs, Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
 
 package chains
@@ -48,6 +48,7 @@ import (
 	"github.com/ava-labs/avalanchego/utils/buffer"
 	"github.com/ava-labs/avalanchego/utils/constants"
 	"github.com/ava-labs/avalanchego/utils/crypto/bls"
+	"github.com/ava-labs/avalanchego/utils/lock"
 	"github.com/ava-labs/avalanchego/utils/logging"
 	"github.com/ava-labs/avalanchego/utils/metric"
 	"github.com/ava-labs/avalanchego/utils/perms"
@@ -192,7 +193,7 @@ type ManagerConfig struct {
 	Tracer                    trace.Tracer
 	Log                       logging.Logger
 	LogFactory                logging.Factory
-	VMManager                 vms.Manager // Manage mappings from vm ID --> vm
+	VMManager                 *vms.Manager // Manage mappings from vm ID --> vm
 	BlockAcceptorGroup        snow.AcceptorGroup
 	TxAcceptorGroup           snow.AcceptorGroup
 	VertexAcceptorGroup       snow.AcceptorGroup
@@ -207,11 +208,12 @@ type ManagerConfig struct {
 	Server                    server.Server // Handles HTTP API calls
 	AtomicMemory              *atomic.Memory
 	AVAXAssetID               ids.ID
-	XChainID                  ids.ID          // ID of the X-Chain,
-	CChainID                  ids.ID          // ID of the C-Chain,
-	CriticalChains            set.Set[ids.ID] // Chains that can't exit gracefully
-	TimeoutManager            timeout.Manager // Manages request timeouts when sending messages to other validators
+	XChainID                  ids.ID           // ID of the X-Chain,
+	CChainID                  ids.ID           // ID of the C-Chain,
+	CriticalChains            set.Set[ids.ID]  // Chains that can't exit gracefully
+	TimeoutManager            *timeout.Manager // Manages request timeouts when sending messages to other validators
 	Health                    health.Registerer
+	ProposerMinBlockDelay     time.Duration
 	SubnetConfigs             map[ids.ID]subnets.Config // ID -> SubnetConfig
 	ChainConfigs              map[string]ChainConfig    // alias -> ChainConfig
 	// ShutdownNodeFunc allows the chain manager to issue a request to shutdown the node
@@ -250,6 +252,8 @@ type manager struct {
 	// That is, [chainID].String() is an alias for the chain, too
 	ids.Aliaser
 	ManagerConfig
+
+	pChainProgress *lock.ProgressSubscription[uint64]
 
 	// Those notified when a chain is created
 	registrants []Registrant
@@ -749,7 +753,7 @@ func (m *manager) createAvalancheChain(
 	var (
 		// A default subnet configuration will be present if explicit configuration is not provided
 		subnetCfg           = m.SubnetConfigs[ctx.SubnetID]
-		minBlockDelay       = subnetCfg.ProposerMinBlockDelay
+		minBlockDelay       = m.ProposerMinBlockDelay // X-chain uses this value
 		numHistoricalBlocks = subnetCfg.ProposerNumHistoricalBlocks
 	)
 	m.Log.Info("creating proposervm wrapper",
@@ -834,7 +838,15 @@ func (m *manager) createAvalancheChain(
 		return nil, fmt.Errorf("error while fetching weight for subnet %s: %w", ctx.SubnetID, err)
 	}
 
-	consensusParams := sb.Config().ConsensusParameters
+	// sanity check
+	if sb.Config().SnowParameters == nil {
+		msg := "snowball parameters not specified for subnet %s"
+		if sb.Config().SimplexParameters != nil {
+			msg += ", this chain is configured with simplex"
+		}
+		return nil, fmt.Errorf(msg, ctx.SubnetID)
+	}
+	consensusParams := *sb.Config().SnowParameters
 	sampleK := consensusParams.K
 	if uint64(sampleK) > bootstrapWeight {
 		sampleK = int(bootstrapWeight)
@@ -1105,6 +1117,8 @@ func (m *manager) createSnowmanChain(
 		messageSender = sender.Trace(messageSender, m.Tracer)
 	}
 
+	var pchainProgressUpdater smeng.PChainProgressUpdater
+
 	var bootstrapFunc func()
 	// If [m.validatorState] is nil then we are creating the P-Chain. Since the
 	// P-Chain is the first chain to be created, we can use it to initialize
@@ -1117,7 +1131,7 @@ func (m *manager) createSnowmanChain(
 
 		// Wrap the validator state with a cached state so that P-chain lookups
 		// are cached.
-		valState = validators.NewCachedState(valState, m.Upgrades.GraniteTime)
+		valState = validators.NewCachedState(valState)
 
 		if m.TracingEnabled {
 			valState = validators.Trace(valState, "platformvm", m.Tracer)
@@ -1136,7 +1150,7 @@ func (m *manager) createSnowmanChain(
 
 		// Wrap the validator state with a cached state so that the P-chain lock
 		// isn't grabbed when lookups are cached.
-		valState = validators.NewCachedState(valState, m.Upgrades.GraniteTime)
+		valState = validators.NewCachedState(valState)
 
 		if !m.ManagerConfig.SybilProtectionEnabled {
 			valState = validators.NewNoValidatorsState(valState)
@@ -1162,9 +1176,12 @@ func (m *manager) createSnowmanChain(
 	var (
 		// A default subnet configuration will be present if explicit configuration is not provided
 		subnetCfg           = m.SubnetConfigs[ctx.SubnetID]
-		minBlockDelay       = subnetCfg.ProposerMinBlockDelay
+		minBlockDelay       time.Duration // Most chains default to 0
 		numHistoricalBlocks = subnetCfg.ProposerNumHistoricalBlocks
 	)
+	if ctx.ChainID == constants.PlatformChainID {
+		minBlockDelay = m.ProposerMinBlockDelay
+	}
 	m.Log.Info("creating proposervm wrapper",
 		zap.Time("activationTime", m.Upgrades.ApricotPhase4Time),
 		zap.Uint64("minPChainHeight", m.Upgrades.ApricotPhase4MinPChainHeight),
@@ -1231,12 +1248,30 @@ func (m *manager) createSnowmanChain(
 		return nil, err
 	}
 
+	if ctx.ChainID == constants.PlatformChainID {
+		lastAcceptedHeight, err := getLastAcceptedHeight(vm)
+		if err != nil {
+			return nil, fmt.Errorf("error while getting last accepted height: %w", err)
+		}
+
+		m.pChainProgress = lock.NewProgressSubscription(lastAcceptedHeight)
+		pchainProgressUpdater = m.pChainProgress
+	}
+
 	bootstrapWeight, err := beacons.TotalWeight(ctx.SubnetID)
 	if err != nil {
 		return nil, fmt.Errorf("error while fetching weight for subnet %s: %w", ctx.SubnetID, err)
 	}
 
-	consensusParams := sb.Config().ConsensusParameters
+	// sanity check
+	if sb.Config().SnowParameters == nil {
+		msg := "snowball parameters not specified for subnet %s"
+		if sb.Config().SimplexParameters != nil {
+			msg += ", this chain is configured with simplex"
+		}
+		return nil, fmt.Errorf(msg, ctx.SubnetID)
+	}
+	consensusParams := *sb.Config().SnowParameters
 	sampleK := consensusParams.K
 	if uint64(sampleK) > bootstrapWeight {
 		sampleK = int(bootstrapWeight)
@@ -1328,15 +1363,16 @@ func (m *manager) createSnowmanChain(
 	// Create engine, bootstrapper and state-syncer in this order,
 	// to make sure start callbacks are duly initialized
 	engineConfig := smeng.Config{
-		Ctx:                 ctx,
-		AllGetsServer:       snowGetHandler,
-		VM:                  vm,
-		Sender:              messageSender,
-		Validators:          vdrs,
-		ConnectedValidators: connectedValidators,
-		Params:              consensusParams,
-		Consensus:           consensus,
-		PartialSync:         m.PartialSyncPrimaryNetwork && ctx.ChainID == constants.PlatformChainID,
+		Ctx:                   ctx,
+		AllGetsServer:         snowGetHandler,
+		VM:                    vm,
+		Sender:                messageSender,
+		Validators:            vdrs,
+		ConnectedValidators:   connectedValidators,
+		Params:                consensusParams,
+		Consensus:             consensus,
+		PartialSync:           m.PartialSyncPrimaryNetwork && ctx.ChainID == constants.PlatformChainID,
+		PChainProgressUpdater: pchainProgressUpdater,
 	}
 	var engine common.Engine
 	engine, err = smeng.New(engineConfig)
@@ -1577,4 +1613,18 @@ func (m *manager) getOrMakeVMGatherer(vmID ids.ID) (metrics.MultiGatherer, error
 	}
 	m.vmGatherer[vmID] = vmGatherer
 	return vmGatherer, nil
+}
+
+func getLastAcceptedHeight(vm block.ChainVM) (uint64, error) {
+	lastAcceptedBlock, err := vm.LastAccepted(context.Background())
+	if err != nil {
+		return 0, fmt.Errorf("error while determining last accepted block ID: %w", err)
+	}
+
+	lastBlock, err := vm.GetBlock(context.Background(), lastAcceptedBlock)
+	if err != nil {
+		return 0, fmt.Errorf("error while fetching last accepted block %x: %w", lastAcceptedBlock, err)
+	}
+
+	return lastBlock.Height(), nil
 }
