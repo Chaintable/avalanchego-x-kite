@@ -8,7 +8,7 @@ module github.com/ava-labs/avalanchego/graft/subnet-evm
 go 1.25.10
 
 require (
-	github.com/Chaintable/pipeline v0.0.64-libevm-ct.3
+	github.com/Chaintable/pipeline v0.0.64-libevm-ct.4
 	github.com/antithesishq/antithesis-sdk-go v0.3.8
 	github.com/ava-labs/avalanchego v1.15.0
 	github.com/ava-labs/avalanchego/graft/evm v1.15.0
