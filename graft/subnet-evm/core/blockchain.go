@@ -1324,12 +1324,13 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, parentRoot common
 				Timestamp:   block.Time(),
 			})
 			if err != nil {
-				// Keep the last published block unchanged and retry the full path
-				// on the next block. A storage failure must not fail block verification.
-				log.Error("Failed to build pipeline block change notification",
+				if errors.Is(err, context.Canceled) {
+					// Shutdown interrupted the ancestry retry after the block was written.
+					return nil
+				}
+				log.Crit("Failed to build pipeline block change notification",
 					"lastHash", lastPushBlock.Hash, "lastNumber", lastPushBlock.BlockNumber,
 					"hash", block.Hash(), "number", block.NumberU64(), "err", err)
-				return nil
 			}
 			var blockChange *ptypes.BlockChangeNotification
 			if len(dropBlocks) > 0 {
@@ -2450,15 +2451,25 @@ func (bc *BlockChain) getCommonAncestor(blocka ptypes.BlockContext, blockb ptype
 		if child.BlockNumber == 0 {
 			return ptypes.BlockContext{}, fmt.Errorf("no common pipeline ancestor before genesis %s", child.Hash)
 		}
-		p, err := bc.getBlockContextByHash(child.ParentHash)
-		if err != nil {
-			return ptypes.BlockContext{}, err
+		// Retry this parent in place. Advancing to another block on failure would
+		// grow the unpublished interval and repeatedly walk its entire ancestry.
+		for {
+			p, err := bc.getBlockContextByHash(child.ParentHash)
+			if err == nil && p.BlockNumber != child.BlockNumber-1 {
+				err = fmt.Errorf("invalid pipeline parent height: block %s at %d, parent %s at %d",
+					child.Hash, child.BlockNumber, p.Hash, p.BlockNumber)
+			}
+			if err == nil {
+				return p, nil
+			}
+			log.Warn("Failed to read pipeline ancestor; retrying in 1 second",
+				"hash", child.ParentHash, "number", child.BlockNumber-1, "err", err)
+			select {
+			case <-bc.quit:
+				return ptypes.BlockContext{}, context.Canceled
+			case <-time.After(time.Second):
+			}
 		}
-		if p.BlockNumber != child.BlockNumber-1 {
-			return ptypes.BlockContext{}, fmt.Errorf("invalid pipeline parent height: block %s at %d, parent %s at %d",
-				child.Hash, child.BlockNumber, p.Hash, p.BlockNumber)
-		}
-		return p, nil
 	}
 	var err error
 	for blockb.BlockNumber > blocka.BlockNumber {
