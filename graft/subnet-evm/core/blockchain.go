@@ -1317,12 +1317,21 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, parentRoot common
 
 		// On a rewind, wait until the new branch reaches the last published height.
 		if lastPushBlock.BlockNumber <= block.NumberU64() {
-			_, dropBlocks, newBlocks := bc.getCommonAncestor(*lastPushBlock, ptypes.BlockContext{
+			_, dropBlocks, newBlocks, err := bc.getCommonAncestor(*lastPushBlock, ptypes.BlockContext{
 				BlockNumber: block.NumberU64(),
 				Hash:        block.Hash(),
 				ParentHash:  block.ParentHash(),
 				Timestamp:   block.Time(),
 			})
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					// Shutdown interrupted the ancestry retry after the block was written.
+					return nil
+				}
+				log.Crit("Failed to build pipeline block change notification",
+					"lastHash", lastPushBlock.Hash, "lastNumber", lastPushBlock.BlockNumber,
+					"hash", block.Hash(), "number", block.NumberU64(), "err", err)
+			}
 			var blockChange *ptypes.BlockChangeNotification
 			if len(dropBlocks) > 0 {
 				blockChange = &ptypes.BlockChangeNotification{
@@ -2392,70 +2401,92 @@ func (bc *BlockChain) repairTxIndexTail(newTail uint64) error {
 	return nil
 }
 
-func (bc *BlockChain) GetHeaderByHash2(blockHash common.Hash) *types.Header {
-	header := bc.GetHeaderByHash(blockHash)
-	if header == nil {
-		if tracer.NodeXPusher != nil {
-			header := &types.Header{}
-			err := util.DownloadFileFromS3Json(tracer.NodeXPusher.Uploader, tracer.NodeXPusher.Bucket, fmt.Sprintf("%s/%s/block", tracer.BizChainID, blockHash.String()), header)
-			if err != nil {
-				log.Error("GetHeaderByHash2 DownloadFileFromS3Json error", "err", err)
-				return nil
-			} else {
-				return header
-			}
-		}
+// getBlockContextByHash reads local headers first, then the pipeline's S3 header.
+// The S3 header omits Subnet-EVM fields, so its recorded hash must be used rather
+// than trying to reconstruct and hash a native header.
+func (bc *BlockChain) getBlockContextByHash(blockHash common.Hash) (ptypes.BlockContext, error) {
+	if header := bc.GetHeaderByHash(blockHash); header != nil {
+		return ptypes.BlockContext{
+			BlockNumber: header.Number.Uint64(),
+			Hash:        header.Hash(),
+			ParentHash:  header.ParentHash,
+			Timestamp:   header.Time,
+		}, nil
 	}
-	return header
+	pusher := tracer.NodeXPusher
+	if pusher == nil || pusher.Uploader == nil {
+		return ptypes.BlockContext{}, fmt.Errorf("pipeline header %s unavailable: no S3 client", blockHash)
+	}
+	prefix := tracer.BizChainID
+	if tracer.Version != "" {
+		prefix += "/" + tracer.Version
+	}
+	key := fmt.Sprintf("%s/%s/block", prefix, blockHash.Hex())
+	var header ptypes.Header
+	if err := util.DownloadFileFromS3Json(pusher.Uploader, pusher.Bucket, key, &header); err != nil {
+		return ptypes.BlockContext{}, fmt.Errorf("read pipeline header s3://%s/%s: %w", pusher.Bucket, key, err)
+	}
+	if header.Number == nil || !header.Number.ToInt().IsUint64() || header.Hash != blockHash {
+		return ptypes.BlockContext{}, fmt.Errorf("invalid pipeline header s3://%s/%s: hash %s, number %v",
+			pusher.Bucket, key, header.Hash, header.Number)
+	}
+	return ptypes.BlockContext{
+		BlockNumber: header.Number.ToInt().Uint64(),
+		Hash:        header.Hash,
+		ParentHash:  header.ParentHash,
+		Timestamp:   uint64(header.Timestamp),
+	}, nil
 }
 
-// 返回两个块的共同祖先，以及两个块的从共同祖先到两个块的路径,即drop和new
-func (bc *BlockChain) getCommonAncestor(blocka ptypes.BlockContext, blockb ptypes.BlockContext) (ptypes.BlockContext, []ptypes.BlockContext, []ptypes.BlockContext) {
+// getCommonAncestor returns the common ancestor and both paths in ascending height
+// order. The caller waits until blockb is at least as high as blocka.
+func (bc *BlockChain) getCommonAncestor(blocka ptypes.BlockContext, blockb ptypes.BlockContext) (ptypes.BlockContext, []ptypes.BlockContext, []ptypes.BlockContext, error) {
 	var (
 		chainA, chainB []ptypes.BlockContext
 	)
-	if blockb.ParentHash == blocka.Hash {
-		return blocka, chainA, []ptypes.BlockContext{blockb}
+	if blockb.BlockNumber > 0 && blocka.BlockNumber == blockb.BlockNumber-1 && blockb.ParentHash == blocka.Hash {
+		return blocka, chainA, []ptypes.BlockContext{blockb}, nil
 	}
+	parent := func(child ptypes.BlockContext) (ptypes.BlockContext, error) {
+		if child.BlockNumber == 0 {
+			return ptypes.BlockContext{}, fmt.Errorf("no common pipeline ancestor before genesis %s", child.Hash)
+		}
+		// Retry this parent in place. Advancing to another block on failure would
+		// grow the unpublished interval and repeatedly walk its entire ancestry.
+		for {
+			p, err := bc.getBlockContextByHash(child.ParentHash)
+			if err == nil && p.BlockNumber != child.BlockNumber-1 {
+				err = fmt.Errorf("invalid pipeline parent height: block %s at %d, parent %s at %d",
+					child.Hash, child.BlockNumber, p.Hash, p.BlockNumber)
+			}
+			if err == nil {
+				return p, nil
+			}
+			log.Warn("Failed to read pipeline ancestor; retrying in 1 second",
+				"hash", child.ParentHash, "number", child.BlockNumber-1, "err", err)
+			select {
+			case <-bc.quit:
+				return ptypes.BlockContext{}, context.Canceled
+			case <-time.After(time.Second):
+			}
+		}
+	}
+	var err error
 	for blockb.BlockNumber > blocka.BlockNumber {
 		chainB = append(chainB, blockb)
-		headerb := bc.GetHeaderByHash2(blockb.ParentHash)
-		if headerb == nil {
-			log.Crit("Failed to get header by hash", "hash", blockb.ParentHash)
-		} else {
-			blockb = ptypes.BlockContext{
-				BlockNumber: headerb.Number.Uint64(),
-				Hash:        headerb.Hash(),
-				ParentHash:  headerb.ParentHash,
-				Timestamp:   headerb.Time,
-			}
+		if blockb, err = parent(blockb); err != nil {
+			return ptypes.BlockContext{}, nil, nil, err
 		}
 	}
 	for blocka.Hash != blockb.Hash {
 		chainA = append(chainA, blocka)
-		headera := bc.GetHeaderByHash2(blocka.ParentHash)
-		if headera == nil {
-			log.Crit("Failed to get header by hash", "hash", blocka.ParentHash)
-		} else {
-			blocka = ptypes.BlockContext{
-				BlockNumber: headera.Number.Uint64(),
-				Hash:        headera.Hash(),
-				ParentHash:  headera.ParentHash,
-				Timestamp:   headera.Time,
-			}
+		if blocka, err = parent(blocka); err != nil {
+			return ptypes.BlockContext{}, nil, nil, err
 		}
 
 		chainB = append(chainB, blockb)
-		headerb := bc.GetHeaderByHash2(blockb.ParentHash)
-		if headerb == nil {
-			log.Crit("Failed to get header by hash", "hash", blockb.ParentHash)
-		} else {
-			blockb = ptypes.BlockContext{
-				BlockNumber: headerb.Number.Uint64(),
-				Hash:        headerb.Hash(),
-				ParentHash:  headerb.ParentHash,
-				Timestamp:   headerb.Time,
-			}
+		if blockb, err = parent(blockb); err != nil {
+			return ptypes.BlockContext{}, nil, nil, err
 		}
 	}
 	// now blocka == blockb == ancestor
@@ -2464,5 +2495,5 @@ func (bc *BlockChain) getCommonAncestor(blocka ptypes.BlockContext, blockb ptype
 	slices.Reverse(chainA)
 	// reverse chainB
 	slices.Reverse(chainB)
-	return blocka, chainA, chainB
+	return blocka, chainA, chainB, nil
 }
